@@ -10,12 +10,14 @@ let selectedBetUSD  = 1;           // bet tier chosen in matchmaking
 let _mmCountdown    = 10;
 let _mmCdInterval   = null;
 let _receivedGameOver = false; // guard to avoid echo when we receive gameover from WS
+let _matchReady     = false;   // true once the pre-match countdown finishes
+let _matchCdInterval = null;
 
 // ═══════════════════════════
 // WEBSOCKET SYNC
 // ═══════════════════════════
 let _ws = null;
-const WS_URL = 'wss://pengpool-production.up.railway.app';
+const WS_URL = window.location.hostname === 'localhost' ? 'ws://localhost:8080' : 'wss://pengpool-production.up.railway.app';
 
 function _connectWS(gameId, playerNum, addr) {
   if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
@@ -46,9 +48,7 @@ function _wsSend(obj) {
 function _wsOnMessage(msg) {
   const G = window.PengPoolGame;
   if (msg.type === 'ready') {
-    toast('Opponent connected: ' + shortenAddr(msg.opponentAddr));
-    // P1 sends the authoritative ball layout to P2
-    if (myPlayerNum === 1 && G) _wsSend({ type: 'state', gameId: currentGameId, balls: G.getBallsState() });
+    _startMatchCountdown(msg.opponentAddr);
   }
   else if (msg.type === 'state') {
     // P2 applies P1's rack layout so both boards are identical
@@ -91,6 +91,45 @@ function _wsOnMessage(msg) {
   else if (msg.type === 'disconnect') {
     toast('Opponent disconnected!', 1);
   }
+}
+
+// Pre-match countdown overlay shown to both players when server sends 'ready'
+function _startMatchCountdown(opponentAddr) {
+  let overlay = document.getElementById('matchCountdown');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'matchCountdown';
+    document.body.appendChild(overlay);
+  }
+  let sec = 10;
+  overlay.innerHTML =
+    '<div class="mcd-box">' +
+      '<div class="mcd-found">¡OPONENTE ENCONTRADO!</div>' +
+      '<div class="mcd-vs">VS</div>' +
+      '<div class="mcd-addr">' + shortenAddr(opponentAddr) + '</div>' +
+      '<div class="mcd-num" id="mcdNum">' + sec + '</div>' +
+      '<div class="mcd-sublabel">La partida empieza en</div>' +
+    '</div>';
+  overlay.classList.add('on');
+
+  clearInterval(_matchCdInterval);
+  _matchCdInterval = setInterval(function () {
+    sec--;
+    const el = document.getElementById('mcdNum');
+    if (el) {
+      el.textContent = sec;
+      el.classList.remove('mcd-pulse');
+      void el.offsetWidth; // reflow to restart animation
+      el.classList.add('mcd-pulse');
+    }
+    if (sec <= 0) {
+      clearInterval(_matchCdInterval); _matchCdInterval = null;
+      overlay.classList.remove('on');
+      _matchReady = true;
+      startMusic();
+      initState(); // both players init; P1's initState sends 'rack' to P2 via _wsOnInit
+    }
+  }, 1000);
 }
 
 // Hook called by game.js at the end of initState()
@@ -269,7 +308,7 @@ C.addEventListener('mousemove',e=>{
 });
 C.addEventListener('mousedown',e=>{
   if(moving||!running||!cue||cue.out||e.button!==0)return;
-  if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
+  if(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum))return;
   charging=true;cs=Date.now();pwr=0;
 });
 C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2)shoot();pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
@@ -313,6 +352,9 @@ document.querySelectorAll('.bet-opt').forEach(b=>b.addEventListener('click',()=>
 
 function _resetGS(){
   gameMode='practice';currentGameId=null;currentGameData=null;myPlayerNum=1;
+  _matchReady=false;
+  clearInterval(_matchCdInterval);_matchCdInterval=null;
+  const ov=document.getElementById('matchCountdown');if(ov)ov.classList.remove('on');
   if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
 }
 
@@ -366,9 +408,9 @@ async function _loadGames(){
       if(Number(mg.status)===1){ // ACTIVE — P2 joined
         currentGameId=myGameId;currentGameData=mg;myPlayerNum=1;gameMode='multiplayer';
         myGameId=null;clearInterval(_mmCdInterval);_mmCdInterval=null;
-        show('game');initState();startMusic();
+        show('game');
         _connectWS(currentGameId,1,w.getAddress());
-        toast('Opponent joined! Game starts!');return;
+        return;
       }
     }
 
@@ -431,9 +473,8 @@ async function _joinGame(gameId,gameData){
     const fresh=await w.getGame(gameId);
     currentGameId=gameId;currentGameData=fresh;myPlayerNum=2;gameMode='multiplayer';
     clearInterval(_mmCdInterval);_mmCdInterval=null;
-    show('game');initState();startMusic();
+    show('game');
     _connectWS(currentGameId,2,w.getAddress());
-    toast('Joined! Game starting\u2026');
   }catch(e){
     toast(e.message.replace('[PengPool] ',''),1);
     document.querySelectorAll('.mm-join').forEach(b=>{b.disabled=false;});
