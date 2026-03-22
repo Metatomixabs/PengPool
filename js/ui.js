@@ -23,10 +23,11 @@ function stopTurnTimer() {
 
 function resetTurnTimer() {
   stopTurnTimer();
+  if (!running || document.getElementById('game').classList.contains('hidden')) return;
   _timerSec = TURN_TIME;
   _updateTimerDisplay();
   _timerInterval = setInterval(() => {
-    if (!running) { stopTurnTimer(); return; }
+    if (!running || document.getElementById('game').classList.contains('hidden')) { stopTurnTimer(); return; }
     _timerSec--;
     _updateTimerDisplay();
     if (_timerSec <= 0) {
@@ -43,6 +44,7 @@ function resetTurnTimer() {
 // so canvas always has real pixel dimensions
 // ═══════════════════════════
 function show(id) {
+  if (id !== 'game') stopTurnTimer();
   document.getElementById('intro').classList.add('hidden');
   document.getElementById('lobby').classList.add('hidden');
   document.getElementById('game').classList.add('hidden');
@@ -85,6 +87,7 @@ function toast(msg,bad=0){
 function foul(){const f=document.getElementById('ff');f.classList.add('on');setTimeout(()=>f.classList.remove('on'),350);}
 function endGame(winner,reason){
   running=false;
+  stopTurnTimer();
   playVictory();
   document.getElementById('mtitle').textContent='PLAYER '+winner+' WINS!';
   document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Smart contract releases the pot.';
