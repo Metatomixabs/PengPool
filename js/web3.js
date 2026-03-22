@@ -177,7 +177,21 @@
             );
           }
 
-          return provider.request({ method: "eth_requestAccounts" })
+          // AGW puede tardar en inicializarse tras la aprobación del modal.
+          // Reintenta eth_requestAccounts hasta 3 veces con 1 s de espera si devuelve vacío.
+          function _requestWithRetry(retriesLeft) {
+            return provider.request({ method: "eth_requestAccounts" })
+              .then(function (accounts) {
+                if ((!accounts || !accounts.length) && retriesLeft > 0) {
+                  console.warn("[PengPool] eth_requestAccounts vacío, reintentando (" + retriesLeft + " left)…");
+                  return new Promise(function (resolve) { setTimeout(resolve, 1000); })
+                    .then(function () { return _requestWithRetry(retriesLeft - 1); });
+                }
+                return accounts;
+              });
+          }
+
+          return _requestWithRetry(3)
             .then(function (accounts) {
               if (!accounts || !accounts.length) throw new Error("No se recibieron cuentas.");
               // accounts[0] = AGW smart wallet; accounts[1] = EOA (si está disponible)
