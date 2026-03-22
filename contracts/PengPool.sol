@@ -54,6 +54,11 @@ contract PengPool {
     /// @notice Chainlink AggregatorV3 interface for ETH/USD price feed.
     AggregatorV3Interface public priceFeed;
 
+    /// @notice When true, skips the Chainlink staleness check in getLatestPrice().
+    /// @dev    FOR TESTNET USE ONLY. On mainnet this must remain false.
+    ///         Allows testing without a live oracle update cycle.
+    bool public skipStalenessCheck;
+
     uint256 public gameCount;
     mapping(uint256 => Game) public games;
 
@@ -129,8 +134,11 @@ contract PengPool {
             /* uint80 answeredInRound */
         ) = priceFeed.latestRoundData();
 
-        require(answer > 0,                                    "PengPool: invalid oracle price");
-        require(block.timestamp - updatedAt <= MAX_PRICE_AGE,  "PengPool: stale oracle price");
+        require(answer > 0, "PengPool: invalid oracle price");
+        require(
+            skipStalenessCheck || block.timestamp - updatedAt <= MAX_PRICE_AGE,
+            "PengPool: stale oracle price"
+        );
 
         return (answer, priceFeed.decimals());
     }
@@ -252,6 +260,13 @@ contract PengPool {
         require(newFeed != address(0), "PengPool: invalid address");
         emit PriceFeedUpdated(address(priceFeed), newFeed);
         priceFeed = AggregatorV3Interface(newFeed);
+    }
+
+    /// @notice Toggles the staleness check bypass.
+    /// @dev    FOR TESTNET USE ONLY. Never enable on mainnet.
+    /// @param  enabled  true to skip staleness check, false to enforce it.
+    function setSkipStalenessCheck(bool enabled) external onlyOwner {
+        skipStalenessCheck = enabled;
     }
 
     /// @notice Updates the wallet that receives the 5% commission.

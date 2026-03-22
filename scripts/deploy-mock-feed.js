@@ -4,7 +4,7 @@ const { ethers } = require("hardhat");
 // Parameters
 // ---------------------------------------------------------------------------
 
-const PENGPOOL_ADDRESS = "0x5DD430c8ee8B49281ea15157458B1DF87dEDE6F8";
+const PENGPOOL_ADDRESS = "0xEeA18855Ffd6824dB84e17e27E616771dFAbfC1F";
 
 const FEED_DECIMALS  = 8;
 const ETH_PRICE_USD  = 2000;

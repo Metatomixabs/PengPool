@@ -30,7 +30,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="nbadge">ABSTRACT TESTNET</div>
-      <div class="nbadge">🔌 CONNECT WALLET</div>
+      <button class="nbadge nbadge-btn" id="btnConnectWallet">🔌 CONNECT WALLET</button>
     </div>
   </nav>
   <div class="hero">
@@ -60,6 +60,43 @@
       <div class="mcard" id="cPractice"><div class="micon">🎯</div><div class="mname">Practice</div><div class="mdesc">Sharpen your skills with no stakes before going for real money.</div><div class="mtags"><span class="tag">FREE</span><span class="tag">OFFLINE</span></div></div>
       <div class="mcard dim"><div class="micon">🏆</div><div class="mname">Tournament</div><div class="mdesc">Bracket-style with pooled prizes. Entry fee goes into the pot.</div><div class="mtags"><span class="tag">SOON</span></div></div>
     </div>
+    </div>
+  </div>
+</div>
+
+<!-- MATCHMAKING -->
+<div id="matchmaking" class="hidden">
+  <nav>
+    <div class="nlogo">
+      <svg width="20" height="20" viewBox="0 0 100 100" fill="none"><path d="M50 10 L78 28 L78 64 L50 82 L22 64 L22 28 Z" stroke="#00C951" stroke-width="7" fill="none"/><circle cx="50" cy="46" r="9" fill="#00C951"/></svg>
+      PENGPOOL
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="nbadge">ABSTRACT TESTNET</div>
+      <span id="mmAddr" class="nbadge" style="background:rgba(0,201,81,0.1);border-color:rgba(0,201,81,0.3);color:var(--g)"></span>
+      <button class="btn-o mm-back-btn" id="btnMMBack">← LOBBY</button>
+    </div>
+  </nav>
+  <div class="mm-body">
+    <div id="myGameBanner" class="mm-banner hidden">
+      <span>MY OPEN GAME — <strong id="myGameLabel"></strong> — Waiting for opponent</span>
+      <button class="btn-o" id="btnCancelMyGame" style="padding:5px 14px;font-size:10px;letter-spacing:1px">CANCEL &amp; REFUND</button>
+    </div>
+    <div class="mm-cols">
+      <div class="mm-section">
+        <div class="seclabel">CREATE A GAME</div>
+        <div class="mm-bets">
+          <button class="bet-opt active" data-usd="1">$1</button>
+          <button class="bet-opt" data-usd="2">$2</button>
+          <button class="bet-opt" data-usd="5">$5</button>
+          <button class="bet-opt" data-usd="10">$10</button>
+        </div>
+        <button class="btn-g" id="btnCreateGame" style="width:100%">🎮 CREATE GAME</button>
+      </div>
+      <div class="mm-section">
+        <div class="seclabel">OPEN GAMES<span id="mmCountdownBadge" class="mm-cd">10s</span></div>
+        <div id="openGamesList" class="mm-list">Loading...</div>
+      </div>
     </div>
   </div>
 </div>
@@ -373,18 +410,18 @@
     <div class="mtitle" id="mtitle">WINNER!</div>
     <div class="msub" id="msub">Smart contract releases the pot.</div>
     <div class="pbox">
-      <div class="prow"><span class="pl">Total pot</span><span class="pv">10.00 USDC</span></div>
-      <div class="prow"><span class="pl">Fee (5%)</span><span class="pv">0.50 USDC</span></div>
-      <div class="prow win"><span class="pl">Winner gets</span><span class="pv">9.50 USDC</span></div>
+      <div class="prow"><span class="pl">Total pot</span><span class="pv" id="pPot">—</span></div>
+      <div class="prow"><span class="pl">Fee (5%)</span><span class="pv" id="pFee">—</span></div>
+      <div class="prow win"><span class="pl">Winner gets</span><span class="pv" id="pWinner">—</span></div>
     </div>
     <div class="mbtns">
-      <button class="btn-g" id="btnAgain">PLAY AGAIN</button>
       <button class="btn-o" id="btnMlobby">LOBBY</button>
     </div>
   </div>
 </div>
 
 
+<script src="js/web3.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>

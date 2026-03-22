@@ -32,5 +32,8 @@
     "hardhat-gas-reporter": "^1.0.10",
     "mocha": "^11.7.5",
     "solidity-coverage": "^0.8.17"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
   }
 }

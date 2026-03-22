@@ -37,6 +37,12 @@ async function main() {
   const address = await pengPool.getAddress();
   console.log("PengPool deployed to:", address);
   console.log(`Explorer: https://explorer.testnet.abs.xyz/address/${address}`);
+
+  // Activate staleness bypass for testnet (no live Chainlink on Abstract testnet)
+  console.log("Enabling skipStalenessCheck for testnet...");
+  const tx = await pengPool.setSkipStalenessCheck(true);
+  await tx.wait();
+  console.log("skipStalenessCheck = true ✓");
 }
 
 main().catch((err) => {

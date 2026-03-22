@@ -27,6 +27,9 @@ const PKT=[
 ];
 
 let balls,cue,moving,aiming,angle,pwr,charging,cs,cur,p1t,p2t,p1T,p2T,typed,anyP,cueP,shots,running,guideOn,spinX,spinY;
+let _myLastShot = true; // true = local shot; false = opponent's shot (no local physics)
+let _remoteTargets = null; // Map<id, {x,y,out}> — interpolation targets set by incoming frames
+const _LERP = 0.5; // lerp factor per frame (0.5 → 87.5% convergence in 3 frames)
 
 
 // ═══════════════════════════
@@ -132,16 +135,20 @@ function initState() {
   anyP=false; cueP=false; foulThisTurn=false; shots=0; running=true; guideOn=true;
   aiming=false; angle=0; pwr=0; charging=false; moving=false; spinX=0; spinY=0;
   trails={}; particles=[];
+  // Reset multiplayer sync state so stale frame targets don't corrupt the new rack
+  _remoteTargets=null;
+  _myLastShot=true;
   cue={id:0,x:180,y:H/2,vx:0,vy:0,out:false};
   balls.push(cue);
+  // Fixed standard 8-ball rack (WPA rules):
+  //   apex = 1, center = 8, back corners = solid(6) + stripe(15)
+  //   rows: [1] [9,2] [10,8,3] [4,11,12,5] [6,13,14,7,15]
+  const RACK=[1, 9,2, 10,8,3, 4,11,12,5, 6,13,14,7,15];
   const rx=490,ry=H/2,sp=R*2.08,S=Math.sin(Math.PI/3);
   const pos=[[0,0],[1,-S],[1,S],[2,-2*S],[2,0],[2,2*S],[3,-3*S],[3,-S],[3,S],[3,3*S],[4,-4*S],[4,-2*S],[4,0],[4,2*S],[4,4*S]];
-  let nums=[1,2,3,4,5,6,7,9,10,11,12,13,14,15];
-  for(let i=nums.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[nums[i],nums[j]]=[nums[j],nums[i]];}
-  nums.splice(4,0,8);
   for(let i=0;i<15;i++){
-    const n=nums[i],d=BD[n],[px,py]=pos[i];
-    balls.push({id:n,x:rx+px*sp+(Math.random()-.5)*.4,y:ry+py*sp+(Math.random()-.5)*.4,vx:0,vy:0,c:d.c,s:d.s,out:false});
+    const n=RACK[i],d=BD[n],[px,py]=pos[i];
+    balls.push({id:n,x:rx+px*sp,y:ry+py*sp,vx:0,vy:0,c:d.c,s:d.s,out:false});
   }
   document.getElementById('shotsv').textContent='0';
   document.getElementById('pwf').style.width='0%';
@@ -152,7 +159,11 @@ function initState() {
   document.getElementById('pt1').textContent='—';
   document.getElementById('pt2').textContent='—';
   renderUI();
-  resetTurnTimer();
+  // In multiplayer, only run the timer on P1's machine at game start (P1 goes first)
+  if(typeof gameMode==='undefined'||gameMode!=='multiplayer'||myPlayerNum===1){resetTurnTimer();}
+  else{stopTurnTimer();}
+  // Rack is now deterministic — no sync needed, but notify opponent to reset state
+  if(typeof window._wsOnInit==='function')window._wsOnInit();
 }
 
 function phys() {
@@ -277,35 +288,91 @@ function eight(){
   endGame(rem.length===0?cur:(cur===1?2:1),rem.length===0?'Pocketed the 8! 🎉':'P'+cur+' potted 8 too early!');
 }
 
-function shoot(){
-  if(!running)return;
-  const spd=pwr/100*MAXP;
-  cue.vx=Math.cos(angle)*spd;
-  cue.vy=Math.sin(angle)*spd;
-  cue.spinX=spinX;
-  cue.spinY=spinY;
-  cue.shotSpd=spd;  // save initial speed for spin reference
-  cue.spun=false;
+function _applyShot(a,p,sx,sy){
+  // Core shot physics — used by both local shoot() and remote applyRemoteShoot()
+  const spd=p/100*MAXP;
+  cue.vx=Math.cos(a)*spd;cue.vy=Math.sin(a)*spd;
+  cue.spinX=sx;cue.spinY=sy;cue.shotSpd=spd;cue.spun=false;
   shots++;anyP=false;cueP=false;foulThisTurn=false;
-  stopTurnTimer();
-  playHit(pwr/100);
+  stopTurnTimer();playHit(p/100);
   if(!_bh&&!_al)_load();
   document.getElementById('shotsv').textContent=shots;
 }
 
+function shoot(){
+  if(!running)return;
+  // Multiplayer: block shooting when it is not this client's turn
+  if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&cur!==myPlayerNum)return;
+  _myLastShot=true;
+  _applyShot(angle,pwr,spinX,spinY);
+  // Notify ui.js so it can relay the shot over WebSocket
+  if(typeof window._wsOnShoot==='function')window._wsOnShoot(angle,pwr,spinX,spinY);
+}
+
+// Called by ui.js when a shoot message arrives from the remote opponent.
+// New authoritative model: we do NOT simulate physics here — we just wait
+// for the "result" message with the final ball state.
+function applyRemoteShoot(){
+  if(!running)return;
+  _myLastShot=false;
+  _remoteTargets=null; // clear stale targets from previous shot
+  document.getElementById('gstatus').textContent='P'+(myPlayerNum===1?2:1)+' — SHOOTING\u2026';
+}
+
 function shotEnd(){
   if(!running)return;
-  if(cueP){cue.out=false;cue.x=180;cue.y=H/2;cue.vx=0;cue.vy=0;foul();switchTurn();return;}
-  if(foulThisTurn){switchTurn();return;}
-  if(!anyP)switchTurn();
+  // Opponent's shot: physics runs only on their machine — just wait for result message
+  if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot)return;
+  if(cueP){cue.out=false;cue.x=180;cue.y=H/2;cue.vx=0;cue.vy=0;foul();switchTurn();}
+  else if(foulThisTurn){switchTurn();}
+  else if(!anyP){switchTurn();}
+  // Broadcast authoritative final state to opponent
+  if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&running){
+    if(typeof window._wsOnResult==='function')window._wsOnResult(_gatherResult());
+  }
+}
+
+function _gatherResult(){
+  const data={balls:getBallsState(),cur,typed,p1T:p1T||null,p2T:p2T||null,p1t:p1t.slice(),p2t:p2t.slice()};
+  console.group('[SYNC] SHOOTER — sending result');
+  data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
+  console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
+  console.groupEnd();
+  return data;
+}
+
+function applyResult(data){
+  console.group('[SYNC] OPPONENT — received result');
+  data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
+  console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
+  console.groupEnd();
+  _remoteTargets=null; // snap to authoritative state, stop interpolation
+  applyBallsState(data.balls);
+  cur=data.cur; typed=data.typed;
+  p1T=data.p1T; p2T=data.p2T;
+  p1t=data.p1t||[]; p2t=data.p2t||[];
+  document.getElementById('pr1').className='pr'+(cur===1?' on':'');
+  document.getElementById('pr2').className='pr'+(cur===2?' on':'');
+  const myTurn=cur===myPlayerNum;
+  document.getElementById('gstatus').textContent='P'+cur+(myTurn?' \u2014 YOUR TURN':' \u2014 OPPONENT\'S TURN');
+  if(!myTurn){aiming=false;charging=false;}
+  // Refresh all type/pocket-count UI that renderUI() normally handles
+  if(typeof renderUI==='function')renderUI();
+  // Timer only runs on the active player's machine to prevent independent desync
+  if(myTurn){if(typeof resetTurnTimer==='function')resetTurnTimer();}
+  else{if(typeof stopTurnTimer==='function')stopTurnTimer();}
 }
 
 function switchTurn(){
   cur=cur===1?2:1;
   document.getElementById('pr1').className='pr'+(cur===1?' on':'');
   document.getElementById('pr2').className='pr'+(cur===2?' on':'');
-  document.getElementById('gstatus').textContent='P'+cur+' — YOUR TURN';
-  resetTurnTimer();
+  const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+  document.getElementById('gstatus').textContent='P'+cur+(myTurn?' — YOUR TURN':' — OPPONENT\'S TURN');
+  if(!myTurn){aiming=false;charging=false;}
+  // In multiplayer only run the timer on the active player's machine
+  if(typeof gameMode==='undefined'||gameMode!=='multiplayer'||myTurn){resetTurnTimer();}
+  else{stopTurnTimer();}
 }
 
 function lx(h,a){let r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return'rgb('+(Math.min(255,r+a))+','+(Math.min(255,g+a))+','+(Math.min(255,b+a))+')'}
@@ -503,6 +570,19 @@ function loop(){
   cx.clearRect(0,0,W,H);drawFelt();
   const was=moving;moving=phys();
   if(was&&!moving)shotEnd();
+  // Stream live ball positions to opponent every frame while balls are moving
+  if(moving&&typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&_myLastShot){
+    if(typeof window._wsOnFrame==='function')window._wsOnFrame(balls);
+  }
+  // Interpolate toward remote targets when watching opponent's shot
+  if(_remoteTargets&&typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot){
+    for(let i=0;i<balls.length;i++){
+      const t=_remoteTargets[balls[i].id];
+      if(!t)continue;
+      if(t.out){balls[i].out=true;}
+      else{balls[i].x+=(t.x-balls[i].x)*_LERP;balls[i].y+=(t.y-balls[i].y)*_LERP;}
+    }
+  }
   updateTrails();
   drawTrails();
   for(const b of balls)drawBall(b);
@@ -515,4 +595,27 @@ function loop(){
   }
   requestAnimationFrame(loop);
 }
+
+// ── Multiplayer sync helpers ──────────────────────────────────────────────────
+
+function getBallsState(){
+  return balls.map(b=>({id:b.id,x:b.x,y:b.y,vx:b.vx,vy:b.vy,out:b.out,c:b.c,s:b.s}));
+}
+
+function applyBallsState(data){
+  data.forEach(bd=>{
+    const b=balls.find(b=>b.id===bd.id);
+    if(b){b.x=bd.x;b.y=bd.y;b.vx=bd.vx;b.vy=bd.vy;b.out=bd.out;}
+  });
+  cue=balls.find(b=>b.id===0);
+}
+
+// Live frame from shooter — store as interpolation targets, applied gradually in loop()
+function applyFrame(data){
+  if(!_remoteTargets)_remoteTargets={};
+  for(let i=0;i<data.length;i++){const bd=data[i];_remoteTargets[bd.id]={x:bd.x,y:bd.y,out:bd.out};}
+}
+
+// Public API used by ui.js for WebSocket synchronisation
+window.PengPoolGame={applyRemoteShoot,getBallsState,applyBallsState,applyResult,applyFrame};
 

@@ -1,4 +1,142 @@
 // ═══════════════════════════
+// WEB3 / MATCHMAKING STATE
+// ═══════════════════════════
+let gameMode        = 'practice';  // 'practice' | 'multiplayer'
+let currentGameId   = null;        // on-chain game ID (Number)
+let currentGameData = null;        // { player1, player2, betAmount, betUSD, status, winner }
+let myPlayerNum     = 1;           // 1 | 2 — our seat in the current game
+let myGameId        = null;        // ID of a game we created (waiting for P2)
+let selectedBetUSD  = 1;           // bet tier chosen in matchmaking
+let _mmCountdown    = 10;
+let _mmCdInterval   = null;
+let _receivedGameOver = false; // guard to avoid echo when we receive gameover from WS
+
+// ═══════════════════════════
+// WEBSOCKET SYNC
+// ═══════════════════════════
+let _ws = null;
+const WS_URL = 'ws://localhost:8080';
+
+function _connectWS(gameId, playerNum, addr) {
+  if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
+  try {
+    _ws = new WebSocket(WS_URL);
+  } catch(e) {
+    console.warn('[WS] Cannot connect:', e.message);
+    toast('Sync server offline — shots won\'t sync', 1);
+    return;
+  }
+  _ws.onopen = () => {
+    const joinMsg = { type: 'join', gameId, playerNum, addr };
+    console.log('[WS] Sending join:', JSON.stringify(joinMsg));
+    _ws.send(JSON.stringify(joinMsg));
+  };
+  _ws.onmessage = (evt) => {
+    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    _wsOnMessage(msg);
+  };
+  _ws.onerror = () => toast('Sync server offline — shots won\'t sync', 1);
+  _ws.onclose = () => console.log('[WS] Disconnected');
+}
+
+function _wsSend(obj) {
+  if (_ws && _ws.readyState === WebSocket.OPEN) _ws.send(JSON.stringify(obj));
+}
+
+function _wsOnMessage(msg) {
+  const G = window.PengPoolGame;
+  if (msg.type === 'ready') {
+    toast('Opponent connected: ' + shortenAddr(msg.opponentAddr));
+    // P1 sends the authoritative ball layout to P2
+    if (myPlayerNum === 1 && G) _wsSend({ type: 'state', gameId: currentGameId, balls: G.getBallsState() });
+  }
+  else if (msg.type === 'state') {
+    // P2 applies P1's rack layout so both boards are identical
+    if (G) { G.applyBallsState(msg.balls); toast('Board synced!'); }
+  }
+  else if (msg.type === 'rack') {
+    // P1 restarted mid-session — rack is deterministic so just reset local state
+    initState();
+  }
+  else if (msg.type === 'shoot') {
+    // Opponent fired — no local physics; animation comes via 'frame' messages
+    console.log('[SYNC] received shoot notification from opponent');
+    if (G) G.applyRemoteShoot();
+  }
+  else if (msg.type === 'frame') {
+    // Live ball positions from shooter — update directly for real-time animation
+    if (G) G.applyFrame(msg.balls);
+  }
+  else if (msg.type === 'result') {
+    // Authoritative final state from the shooter — apply and update turn
+    console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
+    if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
+  }
+  else if (msg.type === 'gameover') {
+    _receivedGameOver = true;
+    endGame(msg.winnerNum, msg.reason);
+  }
+  else if (msg.type === 'settled') {
+    const sub = document.getElementById('msub');
+    if (!sub) return;
+    if (msg.error) {
+      sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
+        '<span style="font-size:11px;color:#ff6b6b">Settlement failed: '+msg.error+'</span>');
+    } else {
+      const short = msg.txHash ? msg.txHash.slice(0,14)+'\u2026' : '';
+      sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
+        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Settled \xb7 '+short+'</span>');
+    }
+  }
+  else if (msg.type === 'disconnect') {
+    toast('Opponent disconnected!', 1);
+  }
+}
+
+// Hook called by game.js at the end of initState()
+// Rack is now fixed/deterministic — just tell opponent to reset their state too
+window._wsOnInit = function() {
+  if (gameMode === 'multiplayer' && myPlayerNum === 1 && _ws && _ws.readyState === WebSocket.OPEN) {
+    _wsSend({ type: 'rack', gameId: currentGameId });
+  }
+};
+
+// Hook called by game.js after every local shot in multiplayer
+window._wsOnShoot = function() {
+  if (gameMode === 'multiplayer') _wsSend({ type: 'shoot', gameId: currentGameId });
+};
+
+// Hook called by game.js when balls stop moving (authoritative final state)
+window._wsOnResult = function(data) {
+  if (gameMode === 'multiplayer') {
+    console.log('[SYNC] _wsOnResult fired — sending to server, cur='+data.cur+' balls='+data.balls.length);
+    _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
+  }
+};
+
+// Hook called every frame while balls are moving (live animation stream)
+let _frameSkip = 0;
+window._wsOnFrame = function(balls) {
+  if (gameMode !== 'multiplayer' || !_ws || _ws.readyState !== WebSocket.OPEN) return;
+  // Send every 3rd frame (~20fps) to avoid flooding the WebSocket
+  if (++_frameSkip % 3 !== 0) return;
+  // Only include balls that are actively moving or just got pocketed
+  const payload = [];
+  for (let i = 0; i < balls.length; i++) {
+    const b = balls[i];
+    if (!b.out && Math.abs(b.vx) < 0.1 && Math.abs(b.vy) < 0.1) continue;
+    payload.push({ id: b.id, x: b.x, y: b.y, out: b.out });
+  }
+  if (payload.length === 0) return;
+  _ws.send(JSON.stringify({ type: 'frame', balls: payload }));
+};
+
+function shortenAddr(a) {
+  if (!a || a === '0x0000000000000000000000000000000000000000') return '—';
+  return a.slice(0, 6) + '\u2026' + a.slice(-4);
+}
+
+// ═══════════════════════════
 // TURN TIMER
 // ═══════════════════════════
 const TURN_TIME = 20;
@@ -45,10 +183,11 @@ function resetTurnTimer() {
 // ═══════════════════════════
 function show(id) {
   if (id !== 'game') stopTurnTimer();
-  document.getElementById('intro').classList.add('hidden');
-  document.getElementById('lobby').classList.add('hidden');
-  document.getElementById('game').classList.add('hidden');
-  document.getElementById(id).classList.remove('hidden');
+  ['intro','lobby','game','matchmaking'].forEach(s => {
+    const el = document.getElementById(s); if (el) el.classList.add('hidden');
+  });
+  if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; }
+  const el = document.getElementById(id); if (el) el.classList.remove('hidden');
 }
 
 
@@ -88,37 +227,235 @@ function foul(){const f=document.getElementById('ff');f.classList.add('on');setT
 function endGame(winner,reason){
   running=false;
   stopTurnTimer();
+  // Broadcast game-over to opponent + trigger server-side settlement
+  if(gameMode==='multiplayer'&&!_receivedGameOver){
+    _wsSend({type:'gameover',gameId:currentGameId,winnerNum:winner,reason});
+  }
+  _receivedGameOver=false;
   playVictory();
   document.getElementById('mtitle').textContent='PLAYER '+winner+' WINS!';
-  document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Smart contract releases the pot.';
-  document.getElementById('modal').classList.add('on');
+  // Calculate and display prize breakdown from real game data
+  const betUSD=currentGameData?Number(currentGameData.betUSD):0;
+  if(betUSD>0){
+    const pot=betUSD*2;
+    const fee=(pot*0.05).toFixed(2);
+    const payout=(pot*0.95).toFixed(2);
+    document.getElementById('pPot').textContent=pot.toFixed(2)+' USD';
+    document.getElementById('pFee').textContent=fee+' USD';
+    document.getElementById('pWinner').textContent=payout+' USD';
+  }else{
+    document.getElementById('pPot').textContent='Practice';
+    document.getElementById('pFee').textContent='—';
+    document.getElementById('pWinner').textContent='No wager';
+  }
+  if(gameMode==='multiplayer'&&currentGameId!==null){
+    document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Settling on-chain\u2026';
+    document.getElementById('modal').classList.add('on');
+  }else{
+    document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Practice game \u2014 no wager.';
+    document.getElementById('modal').classList.add('on');
+  }
 }
 
 C.addEventListener('mousemove',e=>{
   const r=C.getBoundingClientRect();
   const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
   if(!moving&&cue&&!cue.out&&running){
+    if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
     angle=Math.atan2(my-cue.y,mx-cue.x);
     document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
     aiming=true;
   }
 });
-C.addEventListener('mousedown',e=>{if(moving||!running||!cue||cue.out||e.button!==0)return;charging=true;cs=Date.now();pwr=0;});
+C.addEventListener('mousedown',e=>{
+  if(moving||!running||!cue||cue.out||e.button!==0)return;
+  if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
+  charging=true;cs=Date.now();pwr=0;
+});
 C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2)shoot();pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
 C.addEventListener('mouseleave',()=>{aiming=false;if(charging){charging=false;if(pwr>2)shoot();pwr=0;}});
 
 // ── BUTTONS ──
 document.getElementById('btnEnter').addEventListener('click',()=>show('lobby'));
-document.getElementById('btnPlay').addEventListener('click',()=>{show('game');initState();startMusic();});
-document.getElementById('btnPractice').addEventListener('click',()=>{show('game');initState();startMusic();});
-document.getElementById('cWager').addEventListener('click',()=>{show('game');initState();startMusic();});
-document.getElementById('cPractice').addEventListener('click',()=>{show('game');initState();startMusic();});
-document.getElementById('btnLobby').addEventListener('click',()=>show('lobby'));
-document.getElementById('btnLobby2').addEventListener('click',()=>{stopMusic();show('lobby');});
+document.getElementById('btnPlay').addEventListener('click',()=>_onWager());
+document.getElementById('btnPractice').addEventListener('click',()=>_onPractice());
+document.getElementById('cWager').addEventListener('click',()=>_onWager());
+document.getElementById('cPractice').addEventListener('click',()=>_onPractice());
+document.getElementById('btnLobby').addEventListener('click',()=>{_resetGS();show('lobby');});
+document.getElementById('btnLobby2').addEventListener('click',()=>{stopMusic();_resetGS();show('lobby');});
 document.getElementById('btnNew').addEventListener('click',()=>initState());
-document.getElementById('btnAgain').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');initState();});
-document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');show('lobby');});
+document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');_resetGS();show('lobby');});
 document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guideOn;document.getElementById('guidetxt').textContent=guideOn?'ON':'OFF';});
+
+// ── CONNECT WALLET ──
+document.getElementById('btnConnectWallet').addEventListener('click',async()=>{
+  const w=window.PengPoolWeb3;
+  if(!w){toast('Web3 loading\u2026',1);return;}
+  if(w.isConnected()){toast('Connected: '+shortenAddr(w.getAddress()));return;}
+  const btn=document.getElementById('btnConnectWallet');
+  btn.textContent='Connecting\u2026';btn.disabled=true;
+  try{const{agw}=await w.connectWallet();_setWBtn(agw);toast('Wallet connected!');}
+  catch(e){btn.textContent='🔌 CONNECT WALLET';btn.disabled=false;toast(e.message.replace('[PengPool] ',''),1);}
+});
+
+// ── MATCHMAKING PANEL ──
+document.getElementById('btnMMBack').addEventListener('click',()=>show('lobby'));
+document.getElementById('btnCreateGame').addEventListener('click',_createGame);
+document.getElementById('btnCancelMyGame').addEventListener('click',_cancelMyGame);
+document.querySelectorAll('.bet-opt').forEach(b=>b.addEventListener('click',()=>{
+  selectedBetUSD=Number(b.dataset.usd);
+  document.querySelectorAll('.bet-opt').forEach(x=>x.classList.toggle('active',x===b));
+}));
+
+// ════════════════════════════════════════════════
+// WEB3 / MATCHMAKING LOGIC
+// ════════════════════════════════════════════════
+
+function _resetGS(){
+  gameMode='practice';currentGameId=null;currentGameData=null;myPlayerNum=1;
+  if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
+}
+
+function _onPractice(){_resetGS();show('game');initState();startMusic();}
+
+async function _onWager(){
+  const w=window.PengPoolWeb3;
+  if(!w){toast('Web3 loading, try again\u2026',1);return;}
+  if(!w.isConnected()){
+    const btn=document.getElementById('btnConnectWallet');
+    btn.textContent='Connecting\u2026';btn.disabled=true;
+    try{const{agw}=await w.connectWallet();_setWBtn(agw);toast('Connected! Choose a game.');_openMM();}
+    catch(e){btn.textContent='🔌 CONNECT WALLET';btn.disabled=false;toast(e.message.replace('[PengPool] ',''),1);}
+    return;
+  }
+  _openMM();
+}
+
+function _setWBtn(addr){
+  const btn=document.getElementById('btnConnectWallet');if(!btn)return;
+  btn.textContent=shortenAddr(addr);
+  btn.style.color='var(--g)';btn.style.borderColor='rgba(0,201,81,.4)';
+  btn.style.background='rgba(0,201,81,.08)';btn.disabled=false;
+}
+
+function _openMM(){
+  const w=window.PengPoolWeb3;
+  const el=document.getElementById('mmAddr');if(el&&w)el.textContent=shortenAddr(w.getAddress());
+  show('matchmaking');
+  _mmStart();
+}
+
+function _mmStart(){
+  _loadGames();
+  _mmCountdown=10;_updCd();
+  clearInterval(_mmCdInterval);
+  _mmCdInterval=setInterval(()=>{_mmCountdown--;_updCd();if(_mmCountdown<=0){_mmCountdown=10;_loadGames();}},1000);
+}
+
+function _updCd(){const e=document.getElementById('mmCountdownBadge');if(e)e.textContent=_mmCountdown+'s';}
+
+async function _loadGames(){
+  if(gameMode==='multiplayer')return; // game already started — never reconnect from polling
+  const list=document.getElementById('openGamesList');if(!list)return;
+  const w=window.PengPoolWeb3;
+  if(!w){list.innerHTML='<div class="mm-empty">Web3 unavailable</div>';return;}
+  try{
+    // If I created a game, check if someone joined while the panel was open
+    if(myGameId!==null){
+      const mg=await w.getGame(myGameId);
+      if(Number(mg.status)===1){ // ACTIVE — P2 joined
+        currentGameId=myGameId;currentGameData=mg;myPlayerNum=1;gameMode='multiplayer';
+        myGameId=null;clearInterval(_mmCdInterval);_mmCdInterval=null;
+        show('game');initState();startMusic();
+        _connectWS(currentGameId,1,w.getAddress());
+        toast('Opponent joined! Game starts!');return;
+      }
+    }
+
+    const ids=await w.getOpenGames();
+    if(!ids||!ids.length){
+      list.innerHTML='<div class="mm-empty">No open games yet\u2014\u200bbe the first to create one!</div>';
+      document.getElementById('myGameBanner').classList.add('hidden');
+      return;
+    }
+
+    const games=await Promise.all(ids.map(id=>w.getGame(id).then(g=>({id:Number(id),...g}))));
+    const me=w.getAddress()?.toLowerCase();
+    list.innerHTML='';
+    let myG=null;
+
+    games.forEach(g=>{
+      const isMe=g.player1?.toLowerCase()===me;
+      if(isMe)myG=g;
+      const row=document.createElement('div');row.className='mm-row';
+      row.innerHTML=
+        '<div>'+
+          '<div class="mm-gid">GAME #'+g.id+'</div>'+
+          '<div class="mm-gusd">$'+g.betUSD+' USD</div>'+
+          '<div class="mm-gaddr">'+shortenAddr(g.player1)+'</div>'+
+        '</div>'+
+        '<button class="mm-join" '+(isMe?'disabled':'')+'>'+
+          (isMe?'YOUR GAME':'JOIN \u2192')+
+        '</button>';
+      if(!isMe)row.querySelector('.mm-join').addEventListener('click',()=>_joinGame(g.id,g));
+      list.appendChild(row);
+    });
+
+    const banner=document.getElementById('myGameBanner');
+    const lbl=document.getElementById('myGameLabel');
+    if(myG){lbl.textContent='GAME #'+myG.id+' \xb7 $'+myG.betUSD+' USD';banner.classList.remove('hidden');myGameId=myG.id;}
+    else banner.classList.add('hidden');
+
+  }catch(e){list.innerHTML='<div class="mm-empty">Error: '+e.message.replace('[PengPool] ','')+'</div>';}
+}
+
+async function _createGame(){
+  const w=window.PengPoolWeb3;
+  if(!w||!w.isConnected()){toast('Connect wallet first',1);return;}
+  const btn=document.getElementById('btnCreateGame');btn.disabled=true;btn.textContent='Creating\u2026';
+  try{
+    await w.createGame(selectedBetUSD);
+    toast('Game created! Waiting for opponent\u2026');
+  }catch(e){toast(e.message.replace('[PengPool] ',''),1);}
+  btn.disabled=false;btn.textContent='🎮 CREATE GAME';
+}
+
+async function _joinGame(gameId,gameData){
+  const w=window.PengPoolWeb3;
+  if(!w||!w.isConnected()){toast('Connect wallet first',1);return;}
+  // Disable all join buttons to prevent double-click
+  document.querySelectorAll('.mm-join').forEach(b=>{b.disabled=true;});
+  try{
+    toast('Joining game #'+gameId+'\u2026');
+    await w.joinGame(gameId);
+    const fresh=await w.getGame(gameId);
+    currentGameId=gameId;currentGameData=fresh;myPlayerNum=2;gameMode='multiplayer';
+    clearInterval(_mmCdInterval);_mmCdInterval=null;
+    show('game');initState();startMusic();
+    _connectWS(currentGameId,2,w.getAddress());
+    toast('Joined! Game starting\u2026');
+  }catch(e){
+    toast(e.message.replace('[PengPool] ',''),1);
+    document.querySelectorAll('.mm-join').forEach(b=>{b.disabled=false;});
+  }
+}
+
+async function _cancelMyGame(){
+  const w=window.PengPoolWeb3;
+  if(!w||!w.isConnected()){toast('Connect wallet first',1);return;}
+  const btn=document.getElementById('btnCancelMyGame');btn.disabled=true;btn.textContent='Cancelling\u2026';
+  try{
+    const ids=await w.getOpenGames();
+    const me=w.getAddress()?.toLowerCase();
+    let target=null;
+    for(const id of ids){const g=await w.getGame(id);if(g.player1?.toLowerCase()===me){target=Number(id);break;}}
+    if(target===null){toast('No open game to cancel',1);btn.disabled=false;btn.textContent='CANCEL & REFUND';return;}
+    await w.cancelGame(target);
+    myGameId=null;toast('Game cancelled \u2014 refund sent!');
+    setTimeout(_loadGames,2000);
+  }catch(e){toast(e.message.replace('[PengPool] ',''),1);}
+  btn.disabled=false;btn.textContent='CANCEL & REFUND';
+}
 
 // ── Spin pad ──────────────────────────────────────────────────────────────────
 (function(){
