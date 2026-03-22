@@ -15,7 +15,7 @@ let _receivedGameOver = false; // guard to avoid echo when we receive gameover f
 // WEBSOCKET SYNC
 // ═══════════════════════════
 let _ws = null;
-const WS_URL = 'ws://localhost:8080';
+const WS_URL = 'wss://pengpool-production.up.railway.app';
 
 function _connectWS(gameId, playerNum, addr) {
   if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
