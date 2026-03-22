@@ -8,6 +8,11 @@ yarn-error.log*
 dist/
 build/
 out/
+artifacts/
+cache/
+
+# Claude Code internal
+.claude/
 
 # Environment & secrets
 .env
