@@ -29,7 +29,7 @@ const PKT=[
 let balls,cue,moving,aiming,angle,pwr,charging,cs,cur,p1t,p2t,p1T,p2T,typed,anyP,cueP,shots,running,guideOn,spinX,spinY;
 let _myLastShot = true; // true = local shot; false = opponent's shot (no local physics)
 let _remoteTargets = null; // Map<id, {x,y,out}> — interpolation targets set by incoming frames
-const _LERP = 0.5; // lerp factor per frame (0.5 → 87.5% convergence in 3 frames)
+const _LERP = 0.65; // lerp factor per frame — higher value converges faster (~10fps source)
 
 
 // ═══════════════════════════
@@ -346,7 +346,7 @@ function applyResult(data){
   data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
   console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
   console.groupEnd();
-  _remoteTargets=null; // snap to authoritative state, stop interpolation
+  _remoteTargets=null; _myLastShot=true; // snap to authoritative state, stop interpolation
   applyBallsState(data.balls);
   cur=data.cur; typed=data.typed;
   p1T=data.p1T; p2T=data.p2T;
@@ -566,13 +566,17 @@ function drawCue(){
   ox.restore();
 }
 
-function loop(){
+let _lastLoopTime = 0;
+function loop(ts){
+  const frameDelta = ts - _lastLoopTime;
+  _lastLoopTime = ts;
   cx.clearRect(0,0,W,H);drawFelt();
   const was=moving;moving=phys();
   if(was&&!moving)shotEnd();
-  // Stream live ball positions to opponent every frame while balls are moving
+  // Stream live ball positions to opponent while balls are moving.
+  // Skip send if the frame took >50ms (browser under load) to avoid flooding the socket.
   if(moving&&typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&_myLastShot){
-    if(typeof window._wsOnFrame==='function')window._wsOnFrame(balls);
+    if(frameDelta<50&&typeof window._wsOnFrame==='function')window._wsOnFrame(balls);
   }
   // Interpolate toward remote targets when watching opponent's shot
   if(_remoteTargets&&typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot){

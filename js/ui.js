@@ -157,8 +157,8 @@ window._wsOnResult = function(data) {
 let _frameSkip = 0;
 window._wsOnFrame = function(balls) {
   if (gameMode !== 'multiplayer' || !_ws || _ws.readyState !== WebSocket.OPEN) return;
-  // Send every 3rd frame (~20fps) to avoid flooding the WebSocket
-  if (++_frameSkip % 3 !== 0) return;
+  // Send every 6th frame (~10fps) to avoid flooding the WebSocket on real connections
+  if (++_frameSkip % 6 !== 0) return;
   // Only include balls that are actively moving or just got pocketed
   const payload = [];
   for (let i = 0; i < balls.length; i++) {
