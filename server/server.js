@@ -156,6 +156,14 @@ wss.on("connection", (ws) => {
       _send(other, msg);
     }
 
+    // ── timeout  (active player's turn timer expired) ─────────────────────
+    else if (msg.type === "timeout") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      _send(other, { type: "timeout" });
+    }
+
     // ── gameover (game ended — relay + on-chain settlement) ───────────────
     else if (msg.type === "gameover") {
       const room = rooms.get(ws._gameId);

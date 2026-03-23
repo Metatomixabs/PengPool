@@ -72,6 +72,11 @@ function _wsOnMessage(msg) {
     console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
     if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
   }
+  else if (msg.type === 'timeout') {
+    // Active player's turn timer expired — sync the turn change locally
+    toast('Opponent ran out of time!', 0);
+    switchTurn();
+  }
   else if (msg.type === 'gameover') {
     _receivedGameOver = true;
     endGame(msg.winnerNum, msg.reason);
@@ -232,6 +237,7 @@ function resetTurnTimer() {
     if (_timerSec <= 0) {
       stopTurnTimer();
       toast('Time up — turn passes!', 1);
+      if (gameMode === 'multiplayer') _wsSend({ type: 'timeout', gameId: currentGameId });
       switchTurn();
     }
   }, 1000);
