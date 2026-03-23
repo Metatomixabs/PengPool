@@ -685,12 +685,49 @@ function drawCue(){
 
   if(guideOn){
     ox.save();
+    const gdx=Math.cos(angle), gdy=Math.sin(angle);
+
+    // ── Find first impact in game coordinates ──────────────────────────────
+    let tHit=Infinity;
+
+    // Check all non-cue balls
+    for(const b of balls){
+      if(b===cue||b.out)continue;
+      const bx=b.x-cue.x, by=b.y-cue.y;
+      const tCA=bx*gdx+by*gdy;          // t at closest approach
+      if(tCA<R)continue;                 // ball behind or too close
+      const perpSq=bx*bx+by*by-tCA*tCA;
+      const D2=(2*R)*(2*R);
+      if(perpSq>D2)continue;            // ray misses
+      const tC=tCA-Math.sqrt(D2-perpSq);
+      if(tC>0&&tC<tHit)tHit=tC;
+    }
+
+    // Fallback: table cushion boundary (inner edge = rail + R)
+    if(tHit===Infinity){
+      const WL=22+R,WR=W-22-R,WT=22+R,WB=H-22-R;
+      const ts=[];
+      if(gdx>1e-9)ts.push((WR-cue.x)/gdx);
+      if(gdx<-1e-9)ts.push((WL-cue.x)/gdx);
+      if(gdy>1e-9)ts.push((WB-cue.y)/gdy);
+      if(gdy<-1e-9)ts.push((WT-cue.y)/gdy);
+      for(const t of ts)if(t>0&&t<tHit)tHit=t;
+    }
+
+    // Convert hit point to overlay screen coords
+    // (rect.left = cx2 - cue.x*sx, rect.top = cy2 - cue.y*sy)
+    const rectL=cx2-cue.x*pos.sx, rectT=cy2-cue.y*pos.sy;
+    const hitSX=rectL+(cue.x+gdx*tHit)*pos.sx;
+    const hitSY=rectT+(cue.y+gdy*tHit)*pos.sy;
+
+    // Draw guide line up to hit point
     ox.strokeStyle='rgba(0,201,81,.15)';ox.lineWidth=1;ox.setLineDash([7,9]);
-    ox.beginPath();ox.moveTo(cx2,cy2);
-    ox.lineTo(cx2+Math.cos(angle)*370*pos.sx, cy2+Math.sin(angle)*370*pos.sy);
+    ox.beginPath();ox.moveTo(cx2,cy2);ox.lineTo(hitSX,hitSY);
     ox.stroke();ox.setLineDash([]);
+
+    // Draw impact circle at hit point
     ox.globalAlpha=.2;
-    ox.beginPath();ox.arc(cx2+Math.cos(angle)*108*pos.sx, cy2+Math.sin(angle)*108*pos.sy, ballR,0,Math.PI*2);
+    ox.beginPath();ox.arc(hitSX,hitSY,ballR,0,Math.PI*2);
     ox.strokeStyle='#00C951';ox.lineWidth=1.5;ox.stroke();
     ox.restore();
   }
