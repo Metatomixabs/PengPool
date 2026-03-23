@@ -102,7 +102,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 3
 .pr.on .pd{background:var(--g);box-shadow:0 0 6px var(--g)}
 .plabel{font-size:11px;font-weight:600;flex:1;color:var(--t2)}
 .pr.on .plabel{color:var(--g)}
-.ptype{font-family:'Space Mono',monospace;font-size:7px;color:var(--t3)}
+.ptype{font-family:'Space Mono',monospace;font-size:10px;color:var(--t3)}
 .pr.on .ptype{color:var(--g2)}
 .btray{display:flex;flex-wrap:wrap;gap:4px;min-height:20px}
 .mb{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:700;color:#fff;box-shadow:inset 0 1px 3px rgba(255,255,255,.35),0 2px 4px rgba(0,0,0,.6);position:relative}.mb.stripe::after{content:'';position:absolute;inset:0;border-radius:50%;background:linear-gradient(transparent 30%,rgba(255,255,255,.55) 30%,rgba(255,255,255,.55) 70%,transparent 70%);pointer-events:none}
@@ -126,7 +126,17 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 3
 .gbtn-g:hover{background:var(--g3);transform:translateY(-1px)}
 .gbtn-o{background:transparent;border:1px solid var(--b);color:var(--t2)}
 .gbtn-o:hover{border-color:var(--g);color:var(--g)}
-.gcenter{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:9px}
+.gcenter{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;gap:6px}
+/* ── Player info bar above canvas ── */
+.gplayers-bar{width:100%;max-width:764px;display:flex;align-items:stretch;gap:8px;background:rgba(10,24,40,0.85);border:1px solid rgba(120,200,255,0.12);border-radius:6px;padding:8px 12px;box-sizing:border-box}
+.gplayers-bar .pr{flex:1;flex-wrap:wrap;margin-bottom:0;align-content:flex-start}
+.gplayers-bar #pr2{flex-direction:row-reverse}
+.gplayers-bar .btray{width:100%;margin-top:4px}
+.gp-info{flex:1;min-width:0}
+.gp-mid{display:flex;align-items:center;justify-content:center;padding:0 14px;flex-shrink:0}
+/* ── Mesa wrapper with side panels ── */
+.gmesa{display:flex;align-items:stretch;gap:8px}
+.gmesa-side{width:150px;flex-shrink:0;display:flex;flex-direction:column;gap:8px}
 .twrap{position:relative;border-radius:16px;padding:22px;background:linear-gradient(135deg,var(--w3) 0%,var(--w2) 40%,var(--w3) 70%,var(--w) 100%);box-shadow:0 0 0 1px rgba(90,46,10,.8),0 0 0 3px rgba(42,21,5,.9),0 16px 46px rgba(0,0,0,.8)}
 .twrap::before{content:'';position:absolute;inset:0;border-radius:16px;pointer-events:none;background:none}
 .rdiam{position:absolute;width:12px;height:12px;opacity:.75;pointer-events:none;filter:drop-shadow(0 0 3px rgba(0,201,81,.6))}
