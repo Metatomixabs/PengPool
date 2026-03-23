@@ -346,7 +346,7 @@ function applyResult(data){
   data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
   console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
   console.groupEnd();
-  _remoteTargets=null; _myLastShot=true; // snap to authoritative state, stop interpolation
+  _remoteTargets=null; // stop interpolation (do NOT set _myLastShot=true — that would let shotEnd() broadcast a spurious result if phys() fires from overlapping balls in the received state)
   applyBallsState(data.balls);
   cur=data.cur; typed=data.typed;
   p1T=data.p1T; p2T=data.p2T;
@@ -621,5 +621,5 @@ function applyFrame(data){
 }
 
 // Public API used by ui.js for WebSocket synchronisation
-window.PengPoolGame={applyRemoteShoot,getBallsState,applyBallsState,applyResult,applyFrame};
+window.PengPoolGame={applyRemoteShoot,getBallsState,applyBallsState,applyResult,applyFrame,isMyLastShot:()=>_myLastShot};
 

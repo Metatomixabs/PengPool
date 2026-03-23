@@ -162,6 +162,12 @@ window._wsOnShoot = function() {
 // Hook called by game.js when balls stop moving (authoritative final state)
 window._wsOnResult = function(data) {
   if (gameMode === 'multiplayer') {
+    // Guard: only the machine that fired the last shot should broadcast the result.
+    // Spurious calls can happen when phys() resolves overlapping balls in applyResult().
+    if (!G || !G.isMyLastShot()) {
+      console.warn('[SYNC] _wsOnResult suppressed — not the shooter (_myLastShot=false)');
+      return;
+    }
     console.log('[SYNC] _wsOnResult fired — sending to server, cur='+data.cur+' balls='+data.balls.length);
     _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
   }
