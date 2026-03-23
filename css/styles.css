@@ -46,6 +46,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 3
 .eyebrow::before{content:'●';font-size:7px}
 .htitle{font-family:'Exo 2',sans-serif;font-size:48px;font-weight:900;font-style:italic;line-height:1.1;color:#fff;margin-bottom:12px;text-shadow:0 0 40px rgba(100,180,255,0.2)}
 .htitle .g{color:var(--g)}
+.htitle .g-grad{background:linear-gradient(90deg,#fff 0%,var(--g) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hdesc{font-size:14px;color:var(--t2);line-height:1.7;max-width:400px;margin-bottom:26px;font-weight:300}
 .hstats{display:flex;gap:26px;margin-bottom:28px}
 .sv{font-family:'Exo 2',sans-serif;font-size:24px;color:var(--g);font-weight:900;font-style:italic}
