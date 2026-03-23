@@ -88,6 +88,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 3
 .gpill{background:rgba(0,201,81,0.08);border:1px solid rgba(0,201,81,0.2);border-radius:3px;padding:6px 18px;font-family:'Space Mono',monospace;font-size:10px;color:var(--g);letter-spacing:.5px;clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%)}
 .gbk{background:transparent;border:1px solid var(--b2);color:var(--t2);font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;border-radius:6px;cursor:pointer;transition:all .2s;letter-spacing:1px}
 .gbk:hover{border-color:var(--g);color:var(--g)}
+#volSlider{-webkit-appearance:none;appearance:none;width:72px;height:3px;border-radius:2px;background:var(--b2);outline:none;cursor:pointer;vertical-align:middle}
+#volSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;border-radius:50%;background:var(--g);cursor:pointer}
+#volSlider::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--g);border:none;cursor:pointer}
 .gbody{display:flex;flex:1;min-height:0}
 .gside{width:195px;flex-shrink:0;background:linear-gradient(180deg,var(--p) 0%,var(--p2) 100%);border-right:1px solid rgba(120,200,255,0.1);padding:11px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;box-shadow:inset -1px 0 0 rgba(200,232,248,0.04)}
 .gside.r{border-right:none;border-left:1px solid rgba(120,200,255,0.1)}
