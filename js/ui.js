@@ -104,11 +104,11 @@ function _startMatchCountdown(opponentAddr) {
   let sec = 10;
   overlay.innerHTML =
     '<div class="mcd-box">' +
-      '<div class="mcd-found">¡OPONENTE ENCONTRADO!</div>' +
+      '<div class="mcd-found">OPPONENT FOUND!</div>' +
       '<div class="mcd-vs">VS</div>' +
       '<div class="mcd-addr">' + shortenAddr(opponentAddr) + '</div>' +
       '<div class="mcd-num" id="mcdNum">' + sec + '</div>' +
-      '<div class="mcd-sublabel">La partida empieza en</div>' +
+      '<div class="mcd-sublabel">Match starts in</div>' +
     '</div>';
   overlay.classList.add('on');
 
@@ -334,9 +334,8 @@ document.getElementById('btnPlay').addEventListener('click',()=>_onWager());
 document.getElementById('btnPractice').addEventListener('click',()=>_onPractice());
 document.getElementById('cWager').addEventListener('click',()=>_onWager());
 document.getElementById('cPractice').addEventListener('click',()=>_onPractice());
-document.getElementById('btnLobby').addEventListener('click',()=>{_resetGS();show('lobby');});
-document.getElementById('btnLobby2').addEventListener('click',()=>{stopMusic();_resetGS();show('lobby');});
-document.getElementById('btnNew').addEventListener('click',()=>initState());
+document.getElementById('btnLobby').addEventListener('click',()=>_confirmLeaveLobby(false));
+document.getElementById('btnLobby2').addEventListener('click',()=>_confirmLeaveLobby(true));
 document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');_resetGS();show('lobby');});
 document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guideOn;document.getElementById('guidetxt').textContent=guideOn?'ON':'OFF';});
 
@@ -370,6 +369,31 @@ function _resetGS(){
   clearInterval(_matchCdInterval);_matchCdInterval=null;
   const ov=document.getElementById('matchCountdown');if(ov)ov.classList.remove('on');
   if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
+}
+
+function _confirmLeaveLobby(withMusic) {
+  let dlg = document.getElementById('leaveConfirm');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'leaveConfirm';
+    dlg.innerHTML =
+      '<div class="lc-box">' +
+        '<div class="lc-msg">Are you sure you want to leave the match?</div>' +
+        '<div class="lc-btns">' +
+          '<button class="lc-leave" id="lcLeave">Leave</button>' +
+          '<button class="lc-stay"  id="lcStay">Stay</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(dlg);
+    document.getElementById('lcStay').addEventListener('click', () => dlg.classList.remove('on'));
+  }
+  document.getElementById('lcLeave').onclick = () => {
+    dlg.classList.remove('on');
+    if (withMusic) stopMusic();
+    _resetGS();
+    show('lobby');
+  };
+  dlg.classList.add('on');
 }
 
 function _onPractice(){_resetGS();show('game');initState();startMusic();}
