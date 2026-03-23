@@ -181,11 +181,8 @@ window._wsOnResult = function(data) {
 };
 
 // Hook called every frame while balls are moving (live animation stream)
-let _frameSkip = 0;
 window._wsOnFrame = function(balls) {
   if (gameMode !== 'multiplayer' || !_ws || _ws.readyState !== WebSocket.OPEN) return;
-  // Send every 6th frame (~10fps) to avoid flooding the WebSocket on real connections
-  if (++_frameSkip % 2 !== 0) return;
   // Only include balls that are actively moving or just got pocketed
   const payload = [];
   for (let i = 0; i < balls.length; i++) {
