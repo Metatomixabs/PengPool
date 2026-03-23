@@ -101,14 +101,17 @@ wss.on("connection", (ws) => {
       ws._gameId    = gameId;
       ws._playerNum = msg.playerNum; // 1 or 2
       ws._addr      = msg.addr || "";
+      ws._alias     = msg.alias || "";
 
       if (!rooms.has(gameId)) rooms.set(gameId, {});
       const room = rooms.get(gameId);
 
-      room[`p${msg.playerNum}`]     = ws;
-      room[`p${msg.playerNum}addr`] = ws._addr;
+      room[`p${msg.playerNum}`]      = ws;
+      room[`p${msg.playerNum}addr`]  = ws._addr;
+      room[`p${msg.playerNum}alias`] = ws._alias;
 
       console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
+      console.log('Player joined, alias:', ws._alias, 'addr:', ws._addr);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);
       console.log(`[room ${gameId}] raw gameId type=${typeof msg.gameId} value=${JSON.stringify(msg.gameId)}`);
       console.log(`[room ${gameId}] all rooms: [${[...rooms.keys()].join(', ')}]`);
@@ -116,8 +119,9 @@ wss.on("connection", (ws) => {
       // If both players present, notify both
       if (room.p1 && room.p2) {
         console.log(`[room ${gameId}] Both players ready — sending ready`);
-        const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentNum: 2 });
-        const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentNum: 1 });
+        console.log('Sending ready, opponentAlias for P1:', room.p2alias, '| for P2:', room.p1alias);
+        const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentAlias: room.p2alias, opponentNum: 2 });
+        const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentAlias: room.p1alias, opponentNum: 1 });
         console.log(`[room ${gameId}] ready sent to P1=${r1ok} P2=${r2ok}`);
       } else {
         console.log(`[room ${gameId}] waiting for ${room.p1 ? 'P2' : 'P1'}…`);

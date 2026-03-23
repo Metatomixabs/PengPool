@@ -31,6 +31,7 @@
     <div style="display:flex;gap:8px;align-items:center">
       <div class="nbadge">ABSTRACT TESTNET</div>
       <button class="nbadge nbadge-btn" id="btnConnectWallet">🔌 CONNECT WALLET</button>
+      <button class="nbadge nbadge-btn" id="btnRename" style="display:none">✎ RENAME</button>
     </div>
   </nav>
   <div class="hero">
@@ -171,7 +172,7 @@
         <div class="pr on" id="pr1">
           <div class="pd"></div>
           <div class="gp-info">
-            <div class="plabel">Player 1</div>
+            <div class="plabel" id="p1label">Player 1</div>
             <div class="ptype" id="pt1">—</div>
           </div>
           <div class="btray" id="p1t"></div>
@@ -185,7 +186,7 @@
         <div class="pr" id="pr2">
           <div class="btray" id="p2t" style="justify-content:flex-end"></div>
           <div class="gp-info" style="text-align:right">
-            <div class="plabel">Player 2</div>
+            <div class="plabel" id="p2label">Player 2</div>
             <div class="ptype" id="pt2">—</div>
           </div>
           <div class="pd"></div>
@@ -319,5 +320,15 @@
 <script src="js/audio.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
+
+<!-- USERNAME MODAL -->
+<div id="usernameModal" class="umodal">
+  <div class="umodal-box">
+    <div class="umodal-title">CHOOSE YOUR ALIAS</div>
+    <div class="umodal-sub">How will other players see you?</div>
+    <input class="umodal-input" id="usernameInput" type="text" maxlength="20" placeholder="Your name or alias…" autocomplete="off" spellcheck="false">
+    <button class="umodal-btn" id="usernameSubmit">SAVE</button>
+  </div>
+</div>
 </body>
 </html>

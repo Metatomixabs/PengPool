@@ -29,7 +29,7 @@ function _connectWS(gameId, playerNum, addr) {
     return;
   }
   _ws.onopen = () => {
-    const joinMsg = { type: 'join', gameId, playerNum, addr };
+    const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '' };
     console.log('[WS] Sending join:', JSON.stringify(joinMsg));
     _ws.send(JSON.stringify(joinMsg));
   };
@@ -48,7 +48,8 @@ function _wsSend(obj) {
 function _wsOnMessage(msg) {
   const G = window.PengPoolGame;
   if (msg.type === 'ready') {
-    _startMatchCountdown(msg.opponentAddr);
+    console.log('Ready received, opponentAlias:', msg.opponentAlias);
+    _startMatchCountdown(msg.opponentAddr, msg.opponentAlias || '');
   }
   else if (msg.type === 'state') {
     // P2 applies P1's rack layout so both boards are identical
@@ -99,7 +100,19 @@ function _wsOnMessage(msg) {
 }
 
 // Pre-match countdown overlay shown to both players when server sends 'ready'
-function _startMatchCountdown(opponentAddr) {
+function _startMatchCountdown(opponentAddr, opponentAlias) {
+  // Update game panel labels: local player gets their alias, opponent gets their alias (or shortened addr)
+  const w = window.PengPoolWeb3;
+  const myName  = w ? getDisplayName(w.getAddress()) : (myPlayerNum === 1 ? 'Player 1' : 'Player 2');
+  const oppName = opponentAlias || shortenAddr(opponentAddr);
+  console.log('Setting rival name:', oppName);
+  const p1lbl = document.getElementById('p1label');
+  const p2lbl = document.getElementById('p2label');
+  if (p1lbl && p2lbl) {
+    p1lbl.textContent = myPlayerNum === 1 ? myName : oppName;
+    p2lbl.textContent = myPlayerNum === 2 ? myName : oppName;
+  }
+
   let overlay = document.getElementById('matchCountdown');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -111,7 +124,7 @@ function _startMatchCountdown(opponentAddr) {
     '<div class="mcd-box">' +
       '<div class="mcd-found">OPPONENT FOUND!</div>' +
       '<div class="mcd-vs">VS</div>' +
-      '<div class="mcd-addr">' + shortenAddr(opponentAddr) + '</div>' +
+      '<div class="mcd-addr">' + oppName + '</div>' +
       '<div class="mcd-num" id="mcdNum">' + sec + '</div>' +
       '<div class="mcd-sublabel">Match starts in</div>' +
     '</div>';
@@ -197,6 +210,45 @@ window._wsOnFrame = function(balls) {
 function shortenAddr(a) {
   if (!a || a === '0x0000000000000000000000000000000000000000') return '—';
   return a.slice(0, 6) + '\u2026' + a.slice(-4);
+}
+
+// ═══════════════════════════
+// USERNAME / ALIAS
+// ═══════════════════════════
+function _usernameKey(addr) { return 'pengpool_username_' + addr.toLowerCase(); }
+function getStoredUsername(addr) { return addr ? localStorage.getItem(_usernameKey(addr)) : null; }
+function setStoredUsername(addr, name) { localStorage.setItem(_usernameKey(addr), name); }
+function getDisplayName(addr) { return getStoredUsername(addr) || shortenAddr(addr); }
+
+function _showUsernameModal(addr, onSave) {
+  const modal = document.getElementById('usernameModal');
+  const input = document.getElementById('usernameInput');
+  const btn   = document.getElementById('usernameSubmit');
+  if (!modal || !input || !btn) { if (onSave) onSave(null); return; }
+  input.value = getStoredUsername(addr) || '';
+  modal.classList.add('on');
+  setTimeout(() => input.focus(), 50);
+  const save = () => {
+    const name = input.value.trim().slice(0, 20);
+    if (!name) { input.focus(); return; }
+    setStoredUsername(addr, name);
+    modal.classList.remove('on');
+    if (onSave) onSave(name);
+  };
+  btn.onclick = save;
+  input.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+}
+
+function _afterConnect(agw) {
+  _setWBtn(agw);
+  if (!getStoredUsername(agw)) {
+    _showUsernameModal(agw, (name) => {
+      _setWBtn(agw);
+      toast('Welcome, ' + (name || shortenAddr(agw)) + '!');
+    });
+  } else {
+    toast('Wallet connected!');
+  }
 }
 
 // ═══════════════════════════
@@ -382,11 +434,17 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
 document.getElementById('btnConnectWallet').addEventListener('click',async()=>{
   const w=window.PengPoolWeb3;
   if(!w){toast('Web3 loading\u2026',1);return;}
-  if(w.isConnected()){toast('Connected: '+shortenAddr(w.getAddress()));return;}
+  if(w.isConnected()){toast('Connected: '+getDisplayName(w.getAddress()));return;}
   const btn=document.getElementById('btnConnectWallet');
   btn.textContent='Connecting\u2026';btn.disabled=true;
-  try{const{agw}=await w.connectWallet();_setWBtn(agw);toast('Wallet connected!');}
+  try{const{agw}=await w.connectWallet();_afterConnect(agw);}
   catch(e){btn.textContent='🔌 CONNECT WALLET';btn.disabled=false;toast(e.message.replace('[PengPool] ',''),1);}
+});
+
+// ── RENAME ──
+document.getElementById('btnRename').addEventListener('click',()=>{
+  const w=window.PengPoolWeb3;if(!w||!w.isConnected())return;
+  _showUsernameModal(w.getAddress(),(name)=>{_setWBtn(w.getAddress());if(name)toast('Alias saved: '+name);});
 });
 
 // ── MATCHMAKING PANEL ──
@@ -408,6 +466,8 @@ function _resetGS(){
   clearInterval(_matchCdInterval);_matchCdInterval=null;
   const ov=document.getElementById('matchCountdown');if(ov)ov.classList.remove('on');
   if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
+  const p1lbl=document.getElementById('p1label');const p2lbl=document.getElementById('p2label');
+  if(p1lbl)p1lbl.textContent='Player 1';if(p2lbl)p2lbl.textContent='Player 2';
 }
 
 function _confirmLeaveLobby(withMusic) {
@@ -435,7 +495,14 @@ function _confirmLeaveLobby(withMusic) {
   dlg.classList.add('on');
 }
 
-function _onPractice(){_resetGS();show('game');initState();startMusic();}
+function _onPractice(){
+  _resetGS();
+  show('game');
+  const w=window.PengPoolWeb3;
+  const p1lbl=document.getElementById('p1label');
+  if(p1lbl&&w&&w.isConnected())p1lbl.textContent=getDisplayName(w.getAddress());
+  initState();startMusic();
+}
 
 async function _onWager(){
   const w=window.PengPoolWeb3;
@@ -443,7 +510,7 @@ async function _onWager(){
   if(!w.isConnected()){
     const btn=document.getElementById('btnConnectWallet');
     btn.textContent='Connecting\u2026';btn.disabled=true;
-    try{const{agw}=await w.connectWallet();_setWBtn(agw);toast('Connected! Choose a game.');_openMM();}
+    try{const{agw}=await w.connectWallet();_setWBtn(agw);if(!getStoredUsername(agw)){_showUsernameModal(agw,(name)=>{_setWBtn(agw);toast('Welcome, '+(name||shortenAddr(agw))+'!');_openMM();});}else{toast('Connected! Choose a game.');_openMM();}}
     catch(e){btn.textContent='🔌 CONNECT WALLET';btn.disabled=false;toast(e.message.replace('[PengPool] ',''),1);}
     return;
   }
@@ -452,14 +519,15 @@ async function _onWager(){
 
 function _setWBtn(addr){
   const btn=document.getElementById('btnConnectWallet');if(!btn)return;
-  btn.textContent=shortenAddr(addr);
+  btn.textContent=getDisplayName(addr);
   btn.style.color='var(--g)';btn.style.borderColor='rgba(0,201,81,.4)';
   btn.style.background='rgba(0,201,81,.08)';btn.disabled=false;
+  const rb=document.getElementById('btnRename');if(rb)rb.style.display='';
 }
 
 function _openMM(){
   const w=window.PengPoolWeb3;
-  const el=document.getElementById('mmAddr');if(el&&w)el.textContent=shortenAddr(w.getAddress());
+  const el=document.getElementById('mmAddr');if(el&&w)el.textContent=getDisplayName(w.getAddress());
   show('matchmaking');
   _mmStart();
 }
@@ -511,7 +579,7 @@ async function _loadGames(){
         '<div>'+
           '<div class="mm-gid">GAME #'+g.id+'</div>'+
           '<div class="mm-gusd">$'+g.betUSD+' USD</div>'+
-          '<div class="mm-gaddr">'+shortenAddr(g.player1)+'</div>'+
+          '<div class="mm-gaddr">'+(isMe?getDisplayName(g.player1):shortenAddr(g.player1))+'</div>'+
         '</div>'+
         '<button class="mm-join" '+(isMe?'disabled':'')+'>'+
           (isMe?'YOUR GAME':'JOIN \u2192')+
