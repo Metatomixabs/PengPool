@@ -126,10 +126,24 @@ function _startMatchCountdown(opponentAddr) {
       clearInterval(_matchCdInterval); _matchCdInterval = null;
       overlay.classList.remove('on');
       _matchReady = true;
+      _updateMatchStakes();
       startMusic();
       initState(); // both players init; P1's initState sends 'rack' to P2 via _wsOnInit
     }
   }, 1000);
+}
+
+function _updateMatchStakes() {
+  const bet = selectedBetUSD;
+  const pot = bet * 2;
+  const fee = +(pot * 0.05).toFixed(2);
+  const win = +(pot * 0.95).toFixed(2);
+  const fmt = n => (n === Math.floor(n) ? n : n.toFixed(2)) + ' USDC';
+  const el  = id => document.getElementById(id);
+  if (el('stBet'))      el('stBet').textContent      = fmt(bet);
+  if (el('stPot'))      el('stPot').textContent      = fmt(pot);
+  if (el('stProtocol')) el('stProtocol').textContent = fmt(fee);
+  if (el('stWinner'))   el('stWinner').textContent   = fmt(win);
 }
 
 // Hook called by game.js at the end of initState()
