@@ -372,6 +372,7 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
   const open=()=>overlay.classList.add('on');
   const close=()=>overlay.classList.remove('on');
   document.getElementById('btnRules').addEventListener('click',open);
+  document.getElementById('btnRulesLobby').addEventListener('click',open);
   document.getElementById('btnRulesClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
