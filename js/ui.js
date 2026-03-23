@@ -164,7 +164,9 @@ window._wsOnResult = function(data) {
   if (gameMode === 'multiplayer') {
     // Guard: only the machine that fired the last shot should broadcast the result.
     // Spurious calls can happen when phys() resolves overlapping balls in applyResult().
-    if (!G || !G.isMyLastShot()) {
+    // NOTE: use window.PengPoolGame directly — G is a local var inside _wsOnMessage, not in scope here.
+    const _G = window.PengPoolGame;
+    if (!_G || !_G.isMyLastShot()) {
       console.warn('[SYNC] _wsOnResult suppressed — not the shooter (_myLastShot=false)');
       return;
     }

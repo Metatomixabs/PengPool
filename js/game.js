@@ -342,12 +342,22 @@ function _gatherResult(){
 }
 
 function applyResult(data){
-  console.group('[SYNC] OPPONENT — received result');
-  data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
+  // ── Detailed diagnostics (temporary) ─────────────────────────────────────
+  console.group('[SYNC] applyResult — RECEIVED STATE');
+  console.log('  data.balls count:', data.balls ? data.balls.length : 'MISSING');
+  if(data.balls){
+    const inPlay=data.balls.filter(b=>!b.out);
+    const pocketed=data.balls.filter(b=>b.out);
+    console.log('  in-play: '+inPlay.length+', pocketed: '+pocketed.length);
+    data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x!=null?b.x.toFixed(1):'?'} y=${b.y!=null?b.y.toFixed(1):'?'} out=${b.out} vx=${b.vx!=null?b.vx.toFixed(3):'?'}`));
+  }
   console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
+  console.log('  local balls before apply:', balls ? balls.length : 'UNINITIALISED');
   console.groupEnd();
+  // ─────────────────────────────────────────────────────────────────────────
   _remoteTargets=null; // stop interpolation (do NOT set _myLastShot=true — that would let shotEnd() broadcast a spurious result if phys() fires from overlapping balls in the received state)
   applyBallsState(data.balls);
+  console.log('[SYNC] applyResult — after applyBallsState, in-play:', balls.filter(b=>!b.out).length);
   cur=data.cur; typed=data.typed;
   p1T=data.p1T; p2T=data.p2T;
   p1t=data.p1t||[]; p2t=data.p2t||[];
