@@ -30,6 +30,15 @@ let balls,cue,moving,aiming,angle,pwr,charging,cs,cur,p1t,p2t,p1T,p2T,typed,anyP
 let _myLastShot = true; // true = local shot; false = opponent's shot (no local physics)
 let _remoteTargets = null; // Map<id, {x,y,out}> — interpolation targets set by incoming frames
 const _LERP = 0.65; // lerp factor per frame — higher value converges faster (~10fps source)
+let firstContactId = null;    // id of the first ball the cue touched this shot (null = none yet)
+let _typedAtShotStart = false; // snapshot of `typed` taken when the shot fires — types can be
+                               // assigned mid-shot (pocketed()), so we must check the PRE-SHOT state
+let _noOwnBallsAtShotStart = false; // snapshot: were all own balls already pocketed when shot fired?
+                                    // prevents false 8-ball rule trigger when last own ball is pocketed this shot
+let bonusShots = 0;        // guaranteed shots remaining for the CURRENT player (0–2, from foul)
+let ballInHand = false;    // true when player may reposition cue ball along the center line
+let p1EightPocket = null; // pocket index (into PKT[]) where P1 must pot the 8-ball
+let p2EightPocket = null; // pocket index (into PKT[]) where P2 must pot the 8-ball
 
 
 // ═══════════════════════════
@@ -132,7 +141,7 @@ function drawTrails(){
 
 function initState() {
   balls=[]; cur=1; p1t=[]; p2t=[]; p1T=null; p2T=null; typed=false;
-  anyP=false; cueP=false; foulThisTurn=false; shots=0; running=true; guideOn=true;
+  anyP=false; cueP=false; foulThisTurn=false; firstContactId=null; _typedAtShotStart=false; _noOwnBallsAtShotStart=false; bonusShots=0; ballInHand=false; p1EightPocket=null; p2EightPocket=null; shots=0; running=true; guideOn=true;
   aiming=false; angle=0; pwr=0; charging=false; moving=false; spinX=0; spinY=0;
   trails={}; particles=[];
   // Reset multiplayer sync state so stale frame targets don't corrupt the new rack
@@ -159,6 +168,7 @@ function initState() {
   document.getElementById('pt1').textContent='—';
   document.getElementById('pt2').textContent='—';
   renderUI();
+  if(typeof _updateBonusUI==='function')_updateBonusUI();
   // In multiplayer, only run the timer on P1's machine at game start (P1 goes first)
   if(typeof gameMode==='undefined'||gameMode!=='multiplayer'||myPlayerNum===1){resetTurnTimer();}
   else{stopTurnTimer();}
@@ -170,7 +180,7 @@ function phys() {
   let mv=false;
   for(const b of balls){
     if(b.out)continue;
-    if(Math.abs(b.vx)>MINS||Math.abs(b.vy)>MINS){
+    if(b.vx*b.vx+b.vy*b.vy>MINS*MINS){
       mv=true;
       // Continuous spin: side spin (english) curves the cue ball
       if(b.id===0&&b.spinX&&!b.spun){
@@ -182,7 +192,7 @@ function phys() {
         }
       }
       b.x+=b.vx;b.y+=b.vy;b.vx*=FRIC;b.vy*=FRIC;
-      if(Math.abs(b.vx)<MINS)b.vx=0;if(Math.abs(b.vy)<MINS)b.vy=0;
+      if(b.vx*b.vx+b.vy*b.vy<MINS*MINS){b.vx=0;b.vy=0;}
       const WL=22,WR=W-22,WT=22,WB=H-22;
       const midGap=20;
       const atMidX=(b.x>W/2-midGap && b.x<W/2+midGap);
@@ -214,6 +224,7 @@ function phys() {
     const a=balls[i],b=balls[j];if(a.out||b.out)continue;
     const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy),mn=R*2;
     if(d<mn&&d>.001){
+      if(firstContactId===null&&(a.id===0||b.id===0))firstContactId=a.id===0?b.id:a.id;
       const nx=dx/d,ny=dy/d,ov=(mn-d)/2;
       a.x-=nx*ov;a.y-=ny*ov;b.x+=nx*ov;b.y+=ny*ov;
       const dv=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
@@ -242,24 +253,21 @@ function phys() {
   }
   for(const b of balls){
     if(b.out)continue;
-    for(const p of PKT){
-      if(Math.sqrt((b.x-p.x)**2+(b.y-p.y)**2)<p.r){b.out=true;b.vx=0;b.vy=0;pocketed(b);break;}
+    for(let pi=0;pi<PKT.length;pi++){
+      const p=PKT[pi];
+      if(Math.sqrt((b.x-p.x)**2+(b.y-p.y)**2)<p.r){b.out=true;b.vx=0;b.vy=0;pocketed(b,pi);break;}
     }
   }
   return mv;
 }
 
-function pocketed(b){
+function pocketed(b, pi){
   anyP=true;
   playPocket();
   const ballColor=b.id===0?'#ffffff':(BD[b.id]?BD[b.id].c:'#ffdd55');
-  for(const p of PKT){
-    if(Math.sqrt((b.x-p.x)**2+(b.y-p.y)**2)<p.r*2){
-      spawnPocketParticles(p.x,p.y,ballColor);break;
-    }
-  }
+  spawnPocketParticles(PKT[pi].x,PKT[pi].y,ballColor);
   if(b.id===0){cueP=true;toast('⚠️ FOUL — Scratch!',1);return;}
-  if(b.id===8){eight();return;}
+  if(b.id===8){eight(pi);return;}
   if(!typed){
     typed=true;
     const sol=b.id<=7;
@@ -274,6 +282,13 @@ function pocketed(b){
              (cur===2&&((p2T==='solid'&&sol)||(p2T==='stripe'&&!sol)));
   if(mine){
     (cur===1?p1t:p2t).push(b.id);
+    // Detect if this was the player's last ball — record target pocket for the 8
+    const myGroup=cur===1?(p1T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15])
+                         :(p2T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15]);
+    if(balls.filter(x=>!x.out&&myGroup.includes(x.id)).length===0){
+      if(cur===1)p1EightPocket=pi;else p2EightPocket=pi;
+      toast('8-ball must go in the same pocket!',0);
+    }
   } else {
     foulThisTurn=true;
     toast('⚠️ FOUL — wrong ball!',1);
@@ -281,11 +296,16 @@ function pocketed(b){
   renderUI();
 }
 
-function eight(){
+function eight(pi){
   const my=cur===1?(p1T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15])
                   :(p2T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15]);
   const rem=balls.filter(b=>!b.out&&my.includes(b.id));
-  endGame(rem.length===0?cur:(cur===1?2:1),rem.length===0?'Pocketed the 8! 🎉':'P'+cur+' potted 8 too early!');
+  if(rem.length!==0){endGame(cur===1?2:1,'P'+cur+' potted 8 too early!');return;}
+  const myEightPocket=cur===1?p1EightPocket:p2EightPocket;
+  if(myEightPocket!==null&&pi!==myEightPocket){
+    endGame(cur===1?2:1,'Wrong pocket for the 8-ball!');return;
+  }
+  endGame(cur,'Pocketed the 8! 🎉');
 }
 
 function _applyShot(a,p,sx,sy){
@@ -293,7 +313,8 @@ function _applyShot(a,p,sx,sy){
   const spd=p/100*MAXP;
   cue.vx=Math.cos(a)*spd;cue.vy=Math.sin(a)*spd;
   cue.spinX=sx;cue.spinY=sy;cue.shotSpd=spd;cue.spun=false;
-  shots++;anyP=false;cueP=false;foulThisTurn=false;
+  shots++;anyP=false;cueP=false;foulThisTurn=false;firstContactId=null;_typedAtShotStart=typed;
+  if(typed){const _mt=cur===1?p1T:p2T;const _mg=_mt==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15];_noOwnBallsAtShotStart=balls.filter(b=>!b.out&&_mg.includes(b.id)).length===0;}else{_noOwnBallsAtShotStart=false;}
   stopTurnTimer();playHit(p/100);
   if(!_bh&&!_al)_load();
   document.getElementById('shotsv').textContent=shots;
@@ -323,9 +344,82 @@ function shotEnd(){
   if(!running)return;
   // Opponent's shot: physics runs only on their machine — just wait for result message
   if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot)return;
-  if(cueP){cue.out=false;cue.x=180;cue.y=H/2;cue.vx=0;cue.vy=0;foul();switchTurn();}
-  else if(foulThisTurn){switchTurn();}
-  else if(!anyP){switchTurn();}
+
+  // ── First-contact foul check ───────────────────────────────────────────────
+  // Only applies when it's MY shot (cueP catches scratch; pocketed() already set
+  // foulThisTurn for wrong-ball-pocketed — don't override with a second toast).
+  if(!cueP && !foulThisTurn){
+    if(firstContactId===null){
+      foulThisTurn=true;
+      toast('⚠️ FOUL — no ball hit!',1);
+    } else if(_typedAtShotStart){
+      // Types were already assigned before this shot
+      const myType=cur===1?p1T:p2T;
+      const myGroup=myType==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15];
+      const noOwnBalls=_noOwnBallsAtShotStart;
+      if(noOwnBalls){
+        // All own balls cleared — the 8 is the target, must hit it first
+        if(firstContactId!==8){
+          foulThisTurn=true;
+          toast('⚠️ FOUL — must hit 8-ball first!',1);
+        }
+      } else {
+        // Still have own balls — must hit one of them first
+        const fcSolid=firstContactId>=1&&firstContactId<=7;
+        const fcMine=(myType==='solid'&&fcSolid)||(myType==='stripe'&&!fcSolid);
+        if(!fcMine){
+          foulThisTurn=true;
+          toast('⚠️ FOUL — wrong first contact!',1);
+        }
+      }
+    } else {
+      // Types not yet assigned at shot start — any ball is valid except the 8
+      if(firstContactId===8){
+        foulThisTurn=true;
+        toast('⚠️ FOUL — 8-ball first!',1);
+      }
+    }
+  }
+
+  // ── Bonus-shot tracking ────────────────────────────────────────────────────
+  // Consume one bonus shot if the current player had any left.
+  const hadBonus=bonusShots>0;
+  if(hadBonus)bonusShots--;
+
+  // ── Turn result ────────────────────────────────────────────────────────────
+  // During the endgame (8-ball phase) a foul only passes the turn — no 2-shot bonus.
+  // Check both: current player already in endgame (_noOwnBallsAtShotStart), OR
+  // opponent is also in endgame (their last ball was pocketed this shot or earlier).
+  const _oppType=typed?(cur===1?p2T:p1T):null;
+  const _oppGroup=_oppType==='solid'?[1,2,3,4,5,6,7]:(_oppType==='stripe'?[9,10,11,12,13,14,15]:null);
+  const inEndgame=_noOwnBallsAtShotStart||(_oppGroup&&balls.filter(b=>!b.out&&_oppGroup.includes(b.id)).length===0);
+  if(cueP){
+    // Scratch — ball in hand for opponent; 2-shot bonus only outside endgame
+    cue.out=false;cue.x=180;cue.y=H/2;cue.vx=0;cue.vy=0;
+    foul();
+    if(!inEndgame)bonusShots=2;ballInHand=true;
+    _updateBonusUI();
+    switchTurn();
+  } else if(foulThisTurn){
+    // First-contact foul or pocketed wrong ball — 2-shot bonus only outside endgame
+    foul();
+    if(!inEndgame)bonusShots=2;
+    _updateBonusUI();
+    switchTurn();
+  } else if(hadBonus&&bonusShots>0){
+    // Used one guaranteed shot, still have more — keep turn unconditionally
+    _updateBonusUI();
+  } else if(anyP){
+    // Pocketed a legal ball — keep turn (normal rule), no bonus carry-over
+    bonusShots=0;
+    _updateBonusUI();
+  } else {
+    // No ball pocketed and no bonus — switch turn
+    bonusShots=0;
+    _updateBonusUI();
+    switchTurn();
+  }
+
   // Broadcast authoritative final state to opponent
   if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&running){
     if(typeof window._wsOnResult==='function')window._wsOnResult(_gatherResult());
@@ -333,7 +427,7 @@ function shotEnd(){
 }
 
 function _gatherResult(){
-  const data={balls:getBallsState(),cur,typed,p1T:p1T||null,p2T:p2T||null,p1t:p1t.slice(),p2t:p2t.slice()};
+  const data={balls:getBallsState(),cur,typed,p1T:p1T||null,p2T:p2T||null,p1t:p1t.slice(),p2t:p2t.slice(),bonusShots,ballInHand,p1EightPocket,p2EightPocket};
   console.group('[SYNC] SHOOTER — sending result');
   data.balls.forEach(b=>console.log(`  ball ${b.id}: x=${b.x.toFixed(1)} y=${b.y.toFixed(1)} out=${b.out}`));
   console.log('  cur='+data.cur+' typed='+data.typed+' p1T='+data.p1T+' p2T='+data.p2T);
@@ -361,10 +455,14 @@ function applyResult(data){
   cur=data.cur; typed=data.typed;
   p1T=data.p1T; p2T=data.p2T;
   p1t=data.p1t||[]; p2t=data.p2t||[];
+  bonusShots=data.bonusShots||0; ballInHand=!!data.ballInHand;
+  p1EightPocket=data.p1EightPocket!=null?data.p1EightPocket:null;
+  p2EightPocket=data.p2EightPocket!=null?data.p2EightPocket:null;
   document.getElementById('pr1').className='pr'+(cur===1?' on':'');
   document.getElementById('pr2').className='pr'+(cur===2?' on':'');
   const myTurn=cur===myPlayerNum;
   document.getElementById('gstatus').textContent='P'+cur+(myTurn?' \u2014 YOUR TURN':' \u2014 OPPONENT\'S TURN');
+  _updateBonusUI(); // after gstatus — may override with ball-in-hand hint
   if(!myTurn){aiming=false;charging=false;}
   // Refresh all type/pocket-count UI that renderUI() normally handles
   if(typeof renderUI==='function')renderUI();
@@ -383,6 +481,71 @@ function switchTurn(){
   // In multiplayer only run the timer on the active player's machine
   if(typeof gameMode==='undefined'||gameMode!=='multiplayer'||myTurn){resetTurnTimer();}
   else{stopTurnTimer();}
+}
+
+// ── Bonus-shots UI badge ──────────────────────────────────────────────────────
+function _updateBonusUI(){
+  const el=document.getElementById('bonusBadge');
+  if(!el)return;
+  if(bonusShots>0){
+    el.textContent=(bonusShots===2?'2':'1')+' SHOT'+(bonusShots>1?'S':'')+' BONUS'+(ballInHand?' + BALL IN HAND':'');
+    el.className='bonus-badge on'+(ballInHand?' bih':'');
+  } else {
+    el.className='bonus-badge';
+  }
+  // Update gstatus hint when ball-in-hand is active
+  if(ballInHand){
+    const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+    if(myTurn) document.getElementById('gstatus').textContent='MOVE MOUSE TO PLACE CUE — CLICK TO CONFIRM & CHARGE';
+  }
+}
+
+// ── Target pocket indicator for the 8-ball ────────────────────────────────────
+function drawLast8PocketIndicator(){
+  const curEightPocket=cur===1?p1EightPocket:p2EightPocket;
+  if(curEightPocket===null||!typed)return;
+  if(!balls.find(b=>b.id===8&&!b.out))return; // 8 already gone
+  const myGroup=cur===1?(p1T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15])
+                       :(p2T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15]);
+  if(balls.filter(b=>!b.out&&myGroup.includes(b.id)).length>0)return; // still has balls left
+  const p=PKT[curEightPocket];
+  const pulse=0.5+0.5*Math.sin(Date.now()/250);
+  cx.save();
+  // Pulsing golden ring around the target pocket
+  cx.beginPath();cx.arc(p.x,p.y,p.r+3+pulse*5,0,Math.PI*2);
+  cx.strokeStyle=`rgba(255,200,0,${0.45+pulse*0.55})`;
+  cx.lineWidth=2.5;
+  cx.stroke();
+  // Label
+  cx.font=`bold 9px "Space Mono",monospace`;
+  cx.fillStyle=`rgba(255,200,0,${0.7+pulse*0.3})`;
+  cx.textAlign='center';
+  // Place label outside the pocket without overlapping the rail
+  const labelY=p.y<H/2?p.y+p.r+14:p.y-p.r-6;
+  cx.fillText('8 HERE',p.x,labelY);
+  cx.restore();
+}
+
+// ── Ball-in-hand head-string indicator ────────────────────────────────────────
+// The cue ball can be placed anywhere along the vertical head-string (x fixed, y free).
+const BIH_X = 180; // head-string x — same as the cue ball's initial spawn position
+function drawBallInHandLine(){
+  if(!ballInHand)return;
+  const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+  if(!myTurn)return;
+  cx.save();
+  // Dashed vertical line at BIH_X
+  cx.setLineDash([6,6]);
+  cx.strokeStyle='rgba(255,220,50,0.55)';
+  cx.lineWidth=1.5;
+  cx.beginPath();cx.moveTo(BIH_X,24);cx.lineTo(BIH_X,H-24);cx.stroke();
+  // Label above the line
+  cx.setLineDash([]);
+  cx.font='bold 11px "Space Mono",monospace';
+  cx.fillStyle='rgba(255,220,50,0.8)';
+  cx.textAlign='center';
+  cx.fillText('PLACE CUE BALL',BIH_X,16);
+  cx.restore();
 }
 
 function lx(h,a){let r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return'rgb('+(Math.min(255,r+a))+','+(Math.min(255,g+a))+','+(Math.min(255,b+a))+')'}
@@ -580,7 +743,7 @@ let _lastLoopTime = 0;
 function loop(ts){
   const frameDelta = ts - _lastLoopTime;
   _lastLoopTime = ts;
-  cx.clearRect(0,0,W,H);drawFelt();
+  cx.clearRect(0,0,W,H);drawFelt();drawLast8PocketIndicator();drawBallInHandLine();
   const was=moving;moving=phys();
   if(was&&!moving)shotEnd();
   // Stream live ball positions to opponent while balls are moving.

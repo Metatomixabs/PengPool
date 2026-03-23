@@ -157,8 +157,10 @@
 <div class="gnav">
     <div class="gnlogo"><svg width="24" height="26" viewBox="0 0 280 300" xmlns="http://www.w3.org/2000/svg"><ellipse cx="130" cy="292" rx="58" ry="8" fill="rgba(0,0,0,0.4)"/><rect x="57" y="268" width="14" height="10" rx="5" fill="#111" stroke="#000" stroke-width="1.5"/><rect x="59" y="170" width="10" height="102" fill="#5a2608" rx="2"/><rect x="61" y="70" width="6" height="102" fill="#d4a855" rx="2"/><rect x="62.5" y="20" width="3.5" height="52" fill="#ecdda0" rx="1.5"/><rect x="61" y="28" width="6" height="8" fill="#f5f5f5" rx="1"/><rect x="61.5" y="20" width="5" height="10" fill="#2266ee" rx="2.5"/><ellipse cx="135" cy="200" rx="56" ry="65" fill="#00C951" stroke="#000" stroke-width="5"/><ellipse cx="135" cy="210" rx="36" ry="49" fill="#f4f4ee" stroke="#000" stroke-width="3"/><path d="M82 195 Q72 188 68 182 Q64 176 68 170 Q74 166 80 172 Q84 178 86 188Z" fill="#00C951" stroke="#000" stroke-width="4"/><ellipse cx="66" cy="178" rx="10" ry="13" fill="#00C951" stroke="#000" stroke-width="4"/><line x1="58" y1="173" x2="74" y2="173" stroke="#000" stroke-width="1.8" stroke-linecap="round"/><line x1="57" y1="178" x2="75" y2="178" stroke="#000" stroke-width="1.8" stroke-linecap="round"/><line x1="58" y1="183" x2="74" y2="183" stroke="#000" stroke-width="1.8" stroke-linecap="round"/><path d="M186 196 Q204 184 207 202 Q208 218 194 222 Q186 216 184 205Z" fill="#00C951" stroke="#000" stroke-width="4.5"/><ellipse cx="112" cy="258" rx="21" ry="9" fill="#f0a030" stroke="#000" stroke-width="3.5"/><ellipse cx="156" cy="260" rx="21" ry="9" fill="#f0a030" stroke="#000" stroke-width="3.5"/><path d="M108 142 Q108 130 133 128 Q158 130 156 142 L154 154 Q134 150 110 154Z" fill="#00C951"/><ellipse cx="133" cy="96" rx="53" ry="51" fill="#00C951" stroke="#000" stroke-width="5.5"/><ellipse cx="133" cy="104" rx="34" ry="36" fill="#f4f4ee"/><circle cx="116" cy="90" r="13" fill="white" stroke="#000" stroke-width="3.5"/><circle cx="118" cy="92" r="7.5" fill="#111"/><circle cx="122" cy="87" r="3.2" fill="white"/><circle cx="150" cy="90" r="13" fill="white" stroke="#000" stroke-width="3.5"/><circle cx="152" cy="92" r="7.5" fill="#111"/><circle cx="156" cy="87" r="3.2" fill="white"/><path d="M121 114 Q133 126 145 114 Q133 108 121 114Z" fill="#f0a030" stroke="#000" stroke-width="3"/><path d="M107 50 Q113 26 123 44 Q129 16 142 44 Q151 24 159 48" fill="#00C951" stroke="#000" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/></svg> PENGPOOL</div>
     <div class="gpill" id="gstatus">MOVE MOUSE TO AIM — HOLD CLICK TO CHARGE</div>
+    <div class="bonus-badge" id="bonusBadge"></div>
     <div style="display:flex;align-items:center;gap:8px">
       <button class="gbk" id="btnMusicNav" onclick="toggleMusic()" style="letter-spacing:1px">♪ OFF</button><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.5" oninput="setMusicVolume(this.value)" title="Volume">
+      <button class="gbk" id="btnRules" style="letter-spacing:1px">RULES</button>
       <button class="gbk" id="btnLobby">← LOBBY</button>
     </div>
   </div>
@@ -227,7 +229,52 @@
         <div class="stline"><span class="stl">Winner gets</span><span class="stv" id="stWinner">—</span></div>
         <div class="stline"><span class="stl">Shots</span><span class="stv" id="shotsv">0</span></div>
       </div>
-      <div class="gc"><div class="gct">Rules</div><div style="font-size:10px;color:var(--t2);line-height:1.9">• First pocket assigns type<br>• Clear yours, then pot 8<br>• Pot 8 early = lose<br>• Scratch = opponent turn<br>• 5% to protocol</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- RULES MODAL -->
+<div class="mover" id="rulesModal">
+  <div class="mbox rules-box">
+    <button class="rules-close" id="btnRulesClose">&#x2715;</button>
+    <div class="rules-title">GAME RULES</div>
+    <div class="rules-body">
+      <div class="rules-section">
+        <div class="rules-sh">OBJECTIVE</div>
+        <div class="rules-line">Pocket all your balls (solids 1–7 or stripes 9–15) and then legally pot the 8-ball to win.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">TYPE ASSIGNMENT</div>
+        <div class="rules-line">On the opening break, any ball may be hit first. The <em>first ball pocketed</em> determines types: the player who pockets it takes that group, their opponent takes the other. Until the first ball is pocketed, both players are open.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">LEGAL SHOT</div>
+        <div class="rules-line">Once types are assigned, the cue ball must make first contact with one of your own balls. Hitting an opponent's ball or the 8-ball first is a foul.</div>
+        <div class="rules-line">Before types are assigned, the cue ball may hit any ball — <em>except</em> the 8-ball first, which is always a foul.</div>
+        <div class="rules-line">The cue ball must make contact with at least one ball each shot. Hitting nothing is a foul.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">FOULS &amp; 2-SHOT RULE</div>
+        <div class="rules-line">Any foul gives the opponent <strong>2 guaranteed shots</strong>. Shot 1 is always kept regardless of result. After shot 2 normal rules resume: pocket a ball to stay, miss to pass.</div>
+        <div class="rules-line">Bonus shots do not accumulate — a foul during bonus shots resets to 2 for the other player.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">SCRATCH (CUE BALL POTTED)</div>
+        <div class="rules-line">Opponent gets 2 shots <em>plus ball in hand</em>: click the head-string line to place the cue ball anywhere along it before shooting.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">TURN TIMER</div>
+        <div class="rules-line">Each player has 20 seconds per shot. Running out of time passes the turn — no foul penalty.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">WINNING</div>
+        <div class="rules-line">Pot the 8-ball <em>after</em> clearing all your own balls. Potting the 8 early, or scratching on the 8, is an instant loss.</div>
+        <div class="rules-line"><strong>Same-pocket rule:</strong> when you pot your last ball, the pocket it enters becomes your <em>target pocket</em> for the 8. A golden ring highlights it on the table. Potting the 8 in any other pocket is an automatic loss.</div>
+      </div>
+      <div class="rules-section">
+        <div class="rules-sh">WAGERS</div>
+        <div class="rules-line">Both players lock in equal ETH bets on-chain. The winner receives 95% of the pot; 5% goes to the protocol. Settlement is automatic via smart contract on Abstract.</div>
+      </div>
     </div>
   </div>
 </div>

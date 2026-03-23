@@ -136,6 +136,17 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 /* ── MODAL ── */
 .mover{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);backdrop-filter:blur(10px);z-index:900;align-items:center;justify-content:center}
 .mover.on{display:flex}
+
+/* ── RULES MODAL ── */
+.rules-box{position:relative;background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,0.2);border-radius:3px;padding:28px 32px 32px;max-width:500px;width:92%;max-height:82vh;overflow-y:auto;text-align:left;box-shadow:0 28px 68px rgba(0,0,0,.8),inset 0 1px 0 rgba(200,232,248,0.08);animation:mi .3s cubic-bezier(.34,1.56,.64,1)}
+.rules-close{position:absolute;top:14px;right:16px;background:transparent;border:1px solid rgba(120,200,255,0.2);color:rgba(120,200,255,0.6);font-size:13px;width:26px;height:26px;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.rules-close:hover{border-color:var(--g);color:var(--g)}
+.rules-title{font-family:'Exo 2',sans-serif;font-size:18px;font-weight:900;font-style:italic;color:var(--g);letter-spacing:1px;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid rgba(120,200,255,0.12)}
+.rules-section{margin-bottom:16px}
+.rules-sh{font-family:'Space Mono',monospace;font-size:8px;letter-spacing:2px;color:rgba(120,200,255,0.5);text-transform:uppercase;margin-bottom:5px}
+.rules-line{font-size:11px;color:var(--t2);line-height:1.75;margin-bottom:3px}
+.rules-line em{color:var(--g);font-style:normal}
+.rules-line strong{color:#ffd700}
 .mbox{background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,0.2);border-radius:3px;padding:38px;max-width:390px;width:90%;text-align:center;box-shadow:0 28px 68px rgba(0,0,0,.8),0 0 0 1px rgba(200,232,248,0.05),inset 0 1px 0 rgba(200,232,248,0.08);animation:mi .3s cubic-bezier(.34,1.56,.64,1)}
 @keyframes mi{from{opacity:0;transform:scale(.88) translateY(22px)}to{opacity:1;transform:scale(1) translateY(0)}}
 @keyframes frost{0%,100%{opacity:0.5}50%{opacity:1}}
@@ -165,6 +176,12 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 .timer-lbl{font-family:'Space Mono',monospace;font-size:7px;color:rgba(120,200,255,0.35);letter-spacing:2px;text-transform:uppercase}
 .timer-ring-fill.urgent{stroke:#ff4444}
 #ff.timer-out{background:rgba(255,80,0,.08)}
+
+/* ── BONUS SHOTS BADGE ── */
+.bonus-badge{display:none;align-items:center;padding:5px 14px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1.5px;border-radius:3px;text-transform:uppercase;clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%);white-space:nowrap}
+.bonus-badge.on{display:flex;background:rgba(255,200,0,0.13);border:1px solid rgba(255,200,0,0.5);color:#ffd700;animation:bonusPulse 1.4s ease-in-out infinite}
+.bonus-badge.on.bih{background:rgba(255,120,0,0.13);border-color:rgba(255,150,0,0.55);color:#ffaa33}
+@keyframes bonusPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,200,0,0)}50%{box-shadow:0 0 10px 2px rgba(255,200,0,0.25)}}
 
 /* ── MATCHMAKING ─────────────────────────────────────────────────────────── */
 #matchmaking{position:fixed;inset:0;z-index:25;background:var(--bg);overflow-y:auto}

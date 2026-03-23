@@ -326,14 +326,30 @@ C.addEventListener('mousemove',e=>{
   const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
   if(!moving&&cue&&!cue.out&&running){
     if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
-    angle=Math.atan2(my-cue.y,mx-cue.x);
-    document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
-    aiming=true;
+    if(ballInHand){
+      // Drag cue ball preview along the vertical head-string (x fixed, y free)
+      const MARGIN=R+24;
+      cue.x=BIH_X;
+      cue.y=Math.max(MARGIN,Math.min(H-MARGIN,my));
+      aiming=false;
+    } else {
+      angle=Math.atan2(my-cue.y,mx-cue.x);
+      document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
+      aiming=true;
+    }
   }
 });
 C.addEventListener('mousedown',e=>{
   if(moving||!running||!cue||cue.out||e.button!==0)return;
   if(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum))return;
+  if(ballInHand){
+    // Confirm placement only — do NOT start charging on this same click.
+    // Player must release and click again to charge the shot.
+    ballInHand=false;
+    if(typeof _updateBonusUI==='function')_updateBonusUI();
+    document.getElementById('gstatus').textContent='HOLD TO CHARGE — RELEASE TO SHOOT';
+    return;
+  }
   charging=true;cs=Date.now();pwr=0;
 });
 C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2)shoot();pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
@@ -349,6 +365,17 @@ document.getElementById('btnLobby').addEventListener('click',()=>_confirmLeaveLo
 document.getElementById('btnLobby2').addEventListener('click',()=>_confirmLeaveLobby(true));
 document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');_resetGS();show('lobby');});
 document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guideOn;document.getElementById('guidetxt').textContent=guideOn?'ON':'OFF';});
+
+// ── Rules modal ──────────────────────────────────────────────────────────────
+(function(){
+  const overlay=document.getElementById('rulesModal');
+  const open=()=>overlay.classList.add('on');
+  const close=()=>overlay.classList.remove('on');
+  document.getElementById('btnRules').addEventListener('click',open);
+  document.getElementById('btnRulesClose').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
 
 // ── CONNECT WALLET ──
 document.getElementById('btnConnectWallet').addEventListener('click',async()=>{
