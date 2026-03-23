@@ -76,11 +76,35 @@ function _broadcastRoom(room, obj) {
   _send(room.p2, obj);
 }
 
-// rooms: Map<gameId:string, { p1, p2, p1addr, p2addr }>
+// rooms: Map<gameId:string, { p1, p2, p1addr, p2addr, p1alias, p2alias }>
 const rooms = new Map();
 
+// Global alias registry: addr.toLowerCase() → alias
+const aliases = new Map();
+
+const CORS = { "Access-Control-Allow-Origin": "*" };
+
 const httpServer = http.createServer((req, res) => {
-  // Simple health check
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type" });
+    res.end(); return;
+  }
+  if (req.method === "GET" && req.url === "/aliases") {
+    res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+    res.end(JSON.stringify(Object.fromEntries(aliases))); return;
+  }
+  if (req.method === "POST" && req.url === "/alias") {
+    let body = "";
+    req.on("data", c => { body += c; });
+    req.on("end", () => {
+      try {
+        const { addr, alias } = JSON.parse(body);
+        if (addr && alias) aliases.set(addr.toLowerCase(), String(alias).slice(0, 20));
+      } catch {}
+      res.writeHead(200, { "Content-Type": "text/plain", ...CORS });
+      res.end("OK");
+    }); return;
+  }
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("PengPool sync OK\n");
 });
@@ -110,6 +134,7 @@ wss.on("connection", (ws) => {
       room[`p${msg.playerNum}addr`]  = ws._addr;
       room[`p${msg.playerNum}alias`] = ws._alias;
 
+      if (ws._alias) aliases.set(ws._addr.toLowerCase(), ws._alias);
       console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
       console.log('Player joined, alias:', ws._alias, 'addr:', ws._addr);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);

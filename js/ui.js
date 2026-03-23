@@ -17,7 +17,8 @@ let _matchCdInterval = null;
 // WEBSOCKET SYNC
 // ═══════════════════════════
 let _ws = null;
-const WS_URL = window.location.hostname === 'localhost' ? 'ws://localhost:8080' : 'wss://pengpool-production.up.railway.app';
+const WS_URL   = window.location.hostname === 'localhost' ? 'ws://localhost:8080'   : 'wss://pengpool-production.up.railway.app';
+const HTTP_URL = window.location.hostname === 'localhost' ? 'http://localhost:8080' : 'https://pengpool-production.up.railway.app';
 
 function _connectWS(gameId, playerNum, addr) {
   if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
@@ -239,6 +240,15 @@ function _showUsernameModal(addr, onSave) {
   input.onkeydown = (e) => { if (e.key === 'Enter') save(); };
 }
 
+function _registerAlias(addr, alias) {
+  if (!alias || !addr) return;
+  fetch(HTTP_URL + '/alias', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ addr, alias }),
+  }).catch(() => {});
+}
+
 function _afterConnect(agw) {
   _setWBtn(agw);
   if (!getStoredUsername(agw)) {
@@ -349,7 +359,8 @@ function endGame(winner,reason){
   }
   _receivedGameOver=false;
   playVictory();
-  document.getElementById('mtitle').textContent='PLAYER '+winner+' WINS!';
+  const _wlbl=document.getElementById('p'+winner+'label');
+  document.getElementById('mtitle').textContent=(_wlbl?_wlbl.textContent.toUpperCase():'PLAYER '+winner)+' WINS!';
   // Calculate and display prize breakdown from real game data
   const betUSD=currentGameData?Number(currentGameData.betUSD):0;
   if(betUSD>0){
@@ -523,6 +534,7 @@ function _setWBtn(addr){
   btn.style.color='var(--g)';btn.style.borderColor='rgba(0,201,81,.4)';
   btn.style.background='rgba(0,201,81,.08)';btn.disabled=false;
   const rb=document.getElementById('btnRename');if(rb)rb.style.display='';
+  const name=getStoredUsername(addr);if(name)_registerAlias(addr,name);
 }
 
 function _openMM(){
@@ -546,6 +558,8 @@ async function _loadGames(){
   const list=document.getElementById('openGamesList');if(!list)return;
   const w=window.PengPoolWeb3;
   if(!w){list.innerHTML='<div class="mm-empty">Web3 unavailable</div>';return;}
+  let _aliasMap={};
+  try{_aliasMap=await fetch(HTTP_URL+'/aliases').then(r=>r.json());}catch{}
   try{
     // If I created a game, check if someone joined while the panel was open
     if(myGameId!==null){
@@ -579,7 +593,7 @@ async function _loadGames(){
         '<div>'+
           '<div class="mm-gid">GAME #'+g.id+'</div>'+
           '<div class="mm-gusd">$'+g.betUSD+' USD</div>'+
-          '<div class="mm-gaddr">'+(isMe?getDisplayName(g.player1):shortenAddr(g.player1))+'</div>'+
+          '<div class="mm-gaddr">'+(_aliasMap[g.player1?.toLowerCase()]||shortenAddr(g.player1))+'</div>'+
         '</div>'+
         '<button class="mm-join" '+(isMe?'disabled':'')+'>'+
           (isMe?'YOUR GAME':'JOIN \u2192')+
