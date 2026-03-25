@@ -633,6 +633,25 @@ function drawBall(b){
 const OC = document.getElementById('cue-overlay');
 const ox = OC.getContext('2d');
 
+// Cue stick image — black background stripped at load time; cueCanvas holds the processed result
+let cueCanvas = null; // offscreen canvas with transparent background, used in place of raw image
+const cueImg = new Image();
+cueImg.onload = function() {
+  const tmp = document.createElement('canvas');
+  tmp.width = cueImg.naturalWidth;
+  tmp.height = cueImg.naturalHeight;
+  const ctx = tmp.getContext('2d');
+  ctx.drawImage(cueImg, 0, 0);
+  const id = ctx.getImageData(0, 0, tmp.width, tmp.height);
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] < 30 && d[i+1] < 30 && d[i+2] < 30) d[i+3] = 0;
+  }
+  ctx.putImageData(id, 0, 0);
+  cueCanvas = tmp;
+};
+cueImg.src = 'assets/stick/cue_stick.png';
+
 function resizeOverlay(){
   OC.width = window.innerWidth;
   OC.height = window.innerHeight;
@@ -661,7 +680,7 @@ function drawCue(){
   if(typeof _oppCueActive!=='undefined'&&_oppCueActive&&!_isMyTurn&&running&&!moving&&cue&&!cue.out){
     const pos=cueScreenPos();
     const cx2=pos.x,cy2=pos.y;
-    const ballR=R*pos.sx, stickLen=148*pos.sx, pull=26*pos.sx;
+    const ballR=R*pos.sx, pull=26*pos.sx;
     const gdx=Math.cos(_oppCueAngle),gdy=Math.sin(_oppCueAngle);
     // Guide line — find first impact
     let tHit=Infinity;
@@ -689,19 +708,14 @@ function drawCue(){
     ox.globalAlpha=.2;ox.beginPath();ox.arc(hitSX,hitSY,ballR,0,Math.PI*2);
     ox.strokeStyle='#00C951';ox.lineWidth=1.5;ox.stroke();
     ox.restore();
-    // Cue stick
-    const osx=cx2-Math.cos(_oppCueAngle)*(pull+ballR),osy=cy2-Math.sin(_oppCueAngle)*(pull+ballR);
-    const oex=osx-Math.cos(_oppCueAngle)*stickLen,oey=osy-Math.sin(_oppCueAngle)*stickLen;
-    const sg=ox.createLinearGradient(osx,osy,oex,oey);
-    sg.addColorStop(0,'#f0e090');sg.addColorStop(.15,'#c89840');sg.addColorStop(1,'#3a1a04');
-    ox.save();
-    ox.strokeStyle=sg;ox.lineWidth=6*pos.sx;ox.lineCap='round';
-    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(oex,oey);ox.stroke();
-    ox.strokeStyle='rgba(240,240,220,.7)';ox.lineWidth=2.5*pos.sx;
-    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(osx-Math.cos(_oppCueAngle)*7*pos.sx,osy-Math.sin(_oppCueAngle)*7*pos.sy);ox.stroke();
-    ox.strokeStyle='#3366dd';ox.lineWidth=4*pos.sx;
-    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(osx-Math.cos(_oppCueAngle)*4*pos.sx,osy-Math.sin(_oppCueAngle)*4*pos.sy);ox.stroke();
-    ox.restore();
+    // Cue stick image
+    if(cueCanvas){
+      const imgH=330*pos.sx,imgW=imgH*(cueCanvas.width/cueCanvas.height);
+      ox.save();
+      ox.translate(cx2,cy2);ox.rotate(_oppCueAngle+Math.PI/2);
+      ox.drawImage(cueCanvas,-imgW/2,pull+ballR,imgW,imgH);
+      ox.restore();
+    }
   }
 
   if(!aiming||!running||moving||!cue||cue.out)return;
@@ -709,7 +723,6 @@ function drawCue(){
   const pos = cueScreenPos();
   const cx2 = pos.x, cy2 = pos.y;
   const pull = (26 + pwr/100*12) * pos.sx;
-  const stickLen = 148 * pos.sx;
   const ballR = R * pos.sx;
 
   if(guideOn){
@@ -789,24 +802,13 @@ function drawCue(){
     ox.restore();
   }
 
-  const sx = cx2 - Math.cos(angle)*(pull+ballR);
-  const sy = cy2 - Math.sin(angle)*(pull+ballR);
-  const ex = sx - Math.cos(angle)*stickLen;
-  const ey = sy - Math.sin(angle)*stickLen;
-
-  const sg = ox.createLinearGradient(sx,sy,ex,ey);
-  sg.addColorStop(0,'#f0e090');sg.addColorStop(.15,'#c89840');sg.addColorStop(1,'#3a1a04');
-
-  ox.save();
-  ox.strokeStyle=sg;ox.lineWidth=6*(1-pwr/220)*pos.sx;ox.lineCap='round';
-  ox.beginPath();ox.moveTo(sx,sy);ox.lineTo(ex,ey);ox.stroke();
-  // Ferrule
-  ox.strokeStyle='rgba(240,240,220,.7)';ox.lineWidth=2.5*pos.sx;
-  ox.beginPath();ox.moveTo(sx,sy);ox.lineTo(sx-Math.cos(angle)*7*pos.sx,sy-Math.sin(angle)*7*pos.sy);ox.stroke();
-  // Tip
-  ox.strokeStyle='#3366dd';ox.lineWidth=4*pos.sx;
-  ox.beginPath();ox.moveTo(sx,sy);ox.lineTo(sx-Math.cos(angle)*4*pos.sx,sy-Math.sin(angle)*4*pos.sy);ox.stroke();
-  ox.restore();
+  if(cueCanvas){
+    const imgH=330*pos.sx,imgW=imgH*(cueCanvas.width/cueCanvas.height);
+    ox.save();
+    ox.translate(cx2,cy2);ox.rotate(angle+Math.PI/2);
+    ox.drawImage(cueCanvas,-imgW/2,pull+ballR,imgW,imgH);
+    ox.restore();
+  }
 }
 
 function ballSegmentCollision(b, x1, y1, x2, y2) {
