@@ -49,6 +49,7 @@ let balls,cue,moving,aiming,angle,pwr,charging,cs,cur,p1t,p2t,p1T,p2T,typed,anyP
 let mouseX = 0, mouseY = 0;
 let _myLastShot = true; // true = local shot; false = opponent's shot (no local physics)
 let _remoteTargets = null; // Map<id, {x,y,out}> — interpolation targets set by incoming frames
+let _lastSoundWs = 0; // throttle: timestamp of last sound WS message sent
 const _LERP = 0.65; // lerp factor per frame — higher value converges faster (~10fps source)
 let firstContactId = null;    // id of the first ball the cue touched this shot (null = none yet)
 let _typedAtShotStart = false; // snapshot of `typed` taken when the shot fires — types can be
@@ -231,7 +232,7 @@ function phys() {
       if(!atMidX && !nearTL && !nearTR && b.y-R < WT){b.y=WT+R; b.vy*=-.82; hitRail=true;}
       if(!atMidX && !nearBL && !nearBR && b.y+R > WB){b.y=WB-R; b.vy*=-.82; hitRail=true;}
 
-      if(hitRail){const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy); if(spd>1.5)playRailHit();}
+      if(hitRail){const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy); if(spd>1.5){playRailHit();if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){const _n=Date.now();if(_n-_lastSoundWs>80){_lastSoundWs=_n;_wsSend({type:'sound',gameId:currentGameId,sound:'rail'});}}}}
 
       // Deflexión en bocas de todas las troneras
       const corners=[
@@ -278,7 +279,7 @@ function phys() {
         a.vx-=dv*nx;a.vy-=dv*ny;b.vx+=dv*nx;b.vy+=dv*ny;
         // Collision sound based on impact speed
         const impactSpd=Math.abs(dv);
-        if(impactSpd>0.8) playCollision(Math.min(1,impactSpd/MAXP));
+        if(impactSpd>0.8){const _cs=Math.min(1,impactSpd/MAXP);playCollision(_cs);if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){const _n=Date.now();if(_n-_lastSoundWs>80){_lastSoundWs=_n;_wsSend({type:'sound',gameId:currentGameId,sound:'collision',param:_cs});}}}
         spawnHitParticles((a.x+b.x)/2,(a.y+b.y)/2);
       }
       // Apply spin to cue ball on first collision (topspin/draw affects post-collision direction)
@@ -309,7 +310,7 @@ function phys() {
 
 function pocketed(b, pi){
   anyP=true;
-  playPocket();
+  playPocket();if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId)_wsSend({type:'sound',gameId:currentGameId,sound:'pocket'});
   const ballColor=b.id===0?'#ffffff':(BD[b.id]?BD[b.id].c:'#ffdd55');
   spawnPocketParticles(PKT[pi].x,PKT[pi].y,ballColor);
   if(b.id===0){cueP=true;toast('⚠️ FOUL — Scratch!',1);return;}
@@ -654,6 +655,55 @@ function cueScreenPos(){
 
 function drawCue(){
   ox.clearRect(0,0,OC.width,OC.height);
+
+  // ── Opponent's cue and aim guide (visible while they are aiming) ─────────
+  const _isMyTurn = typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+  if(typeof _oppCueActive!=='undefined'&&_oppCueActive&&!_isMyTurn&&running&&!moving&&cue&&!cue.out){
+    const pos=cueScreenPos();
+    const cx2=pos.x,cy2=pos.y;
+    const ballR=R*pos.sx, stickLen=148*pos.sx, pull=26*pos.sx;
+    const gdx=Math.cos(_oppCueAngle),gdy=Math.sin(_oppCueAngle);
+    // Guide line — find first impact
+    let tHit=Infinity;
+    for(const b of balls){
+      if(b===cue||b.out)continue;
+      const bx=b.x-cue.x,by=b.y-cue.y;
+      const tCA=bx*gdx+by*gdy;
+      if(tCA<R)continue;
+      const perpSq=bx*bx+by*by-tCA*tCA,D2=(2*R)*(2*R);
+      if(perpSq>D2)continue;
+      const tC=tCA-Math.sqrt(D2-perpSq);
+      if(tC>0&&tC<tHit)tHit=tC;
+    }
+    if(tHit===Infinity){
+      const _WL=37+R,_WR=W-37-R,_WT=75+R,_WB=H-55-R,ts=[];
+      if(gdx>1e-9)ts.push((_WR-cue.x)/gdx);if(gdx<-1e-9)ts.push((_WL-cue.x)/gdx);
+      if(gdy>1e-9)ts.push((_WB-cue.y)/gdy);if(gdy<-1e-9)ts.push((_WT-cue.y)/gdy);
+      for(const t of ts)if(t>0&&t<tHit)tHit=t;
+    }
+    const rectL=cx2-cue.x*pos.sx,rectT=cy2-cue.y*pos.sy;
+    const hitSX=rectL+(cue.x+gdx*tHit)*pos.sx,hitSY=rectT+(cue.y+gdy*tHit)*pos.sy;
+    ox.save();
+    ox.strokeStyle='rgba(0,201,81,.15)';ox.lineWidth=1;ox.setLineDash([7,9]);
+    ox.beginPath();ox.moveTo(cx2,cy2);ox.lineTo(hitSX,hitSY);ox.stroke();ox.setLineDash([]);
+    ox.globalAlpha=.2;ox.beginPath();ox.arc(hitSX,hitSY,ballR,0,Math.PI*2);
+    ox.strokeStyle='#00C951';ox.lineWidth=1.5;ox.stroke();
+    ox.restore();
+    // Cue stick
+    const osx=cx2-Math.cos(_oppCueAngle)*(pull+ballR),osy=cy2-Math.sin(_oppCueAngle)*(pull+ballR);
+    const oex=osx-Math.cos(_oppCueAngle)*stickLen,oey=osy-Math.sin(_oppCueAngle)*stickLen;
+    const sg=ox.createLinearGradient(osx,osy,oex,oey);
+    sg.addColorStop(0,'#f0e090');sg.addColorStop(.15,'#c89840');sg.addColorStop(1,'#3a1a04');
+    ox.save();
+    ox.strokeStyle=sg;ox.lineWidth=6*pos.sx;ox.lineCap='round';
+    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(oex,oey);ox.stroke();
+    ox.strokeStyle='rgba(240,240,220,.7)';ox.lineWidth=2.5*pos.sx;
+    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(osx-Math.cos(_oppCueAngle)*7*pos.sx,osy-Math.sin(_oppCueAngle)*7*pos.sy);ox.stroke();
+    ox.strokeStyle='#3366dd';ox.lineWidth=4*pos.sx;
+    ox.beginPath();ox.moveTo(osx,osy);ox.lineTo(osx-Math.cos(_oppCueAngle)*4*pos.sx,osy-Math.sin(_oppCueAngle)*4*pos.sy);ox.stroke();
+    ox.restore();
+  }
+
   if(!aiming||!running||moving||!cue||cue.out)return;
 
   const pos = cueScreenPos();

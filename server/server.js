@@ -185,6 +185,30 @@ wss.on("connection", (ws) => {
       _send(other, msg);
     }
 
+    // ── cueUpdate  (active player streams aim angle to opponent) ─────────
+    else if (msg.type === "cueUpdate") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      _send(other, { type: "cueUpdate", angle: msg.angle, x: msg.x, y: msg.y });
+    }
+
+    // ── sound  (shooter relays collision/rail/pocket sounds to opponent) ──
+    else if (msg.type === "sound") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      _send(other, { type: "sound", sound: msg.sound, param: msg.param });
+    }
+
+    // ── timerTick  (active player broadcasts remaining seconds each tick) ──
+    else if (msg.type === "timerTick") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      _send(other, { type: "timerTick", sec: msg.sec });
+    }
+
     // ── timeout  (active player's turn timer expired) ─────────────────────
     else if (msg.type === "timeout") {
       const room = rooms.get(ws._gameId);
@@ -208,6 +232,7 @@ wss.on("connection", (ws) => {
       }
       _settle(ws._gameId, winnerAddr, room);
     }
+
   });
 
   ws.on("close", () => {

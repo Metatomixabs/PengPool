@@ -12,6 +12,21 @@ let _mmCdInterval   = null;
 let _receivedGameOver = false; // guard to avoid echo when we receive gameover from WS
 let _matchReady     = false;   // true once the pre-match countdown finishes
 let _matchCdInterval = null;
+let _oppCueAngle = 0;          // opponent's current aim angle (radians)
+let _oppCueActive = false;     // true while opponent is aiming
+let _lastCueUpdateWs = 0;      // throttle timestamp for cueUpdate sends
+
+// ═══════════════════════════
+// AUDIO CONTEXT UNLOCK
+// ═══════════════════════════
+function _resumeAudioCtx() {
+  if (typeof audioCtx !== 'undefined' && audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+['click', 'keydown', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, _resumeAudioCtx, { once: false, passive: true })
+);
 
 // ═══════════════════════════
 // WEBSOCKET SYNC
@@ -60,8 +75,13 @@ function _wsOnMessage(msg) {
     // P1 restarted mid-session — rack is deterministic so just reset local state
     initState();
   }
+  else if (msg.type === 'cueUpdate') {
+    _oppCueAngle = msg.angle;
+    _oppCueActive = true;
+  }
   else if (msg.type === 'shoot') {
-    // Opponent fired — no local physics; animation comes via 'frame' messages
+    // Opponent fired — cue disappears, no local physics; animation comes via 'frame' messages
+    _oppCueActive = false;
     console.log('[SYNC] received shoot notification from opponent');
     if (G) G.applyRemoteShoot();
   }
@@ -74,8 +94,20 @@ function _wsOnMessage(msg) {
     console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
     if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
   }
+  else if (msg.type === 'sound') {
+    _resumeAudioCtx();
+    if (msg.sound === 'collision') playCollision(msg.param != null ? msg.param : 1);
+    else if (msg.sound === 'rail') playRailHit();
+    else if (msg.sound === 'pocket') playPocket();
+  }
+  else if (msg.type === 'timerTick') {
+    // Sync the active player's countdown on this client
+    _timerSec = msg.sec;
+    _updateTimerDisplay();
+  }
   else if (msg.type === 'timeout') {
     // Active player's turn timer expired — sync the turn change locally
+    _oppCueActive = false;
     toast('Opponent ran out of time!', 0);
     switchTurn();
   }
@@ -205,7 +237,7 @@ window._wsOnFrame = function(balls) {
     payload.push({ id: b.id, x: b.x, y: b.y, out: b.out });
   }
   if (payload.length === 0) return;
-  _ws.send(JSON.stringify({ type: 'frame', balls: payload }));
+  _wsSend({ type: 'frame', gameId: currentGameId, balls: payload });
 };
 
 function shortenAddr(a) {
@@ -289,10 +321,12 @@ function resetTurnTimer() {
   if (!running || document.getElementById('game').classList.contains('hidden')) return;
   _timerSec = TURN_TIME;
   _updateTimerDisplay();
+  if (gameMode === 'multiplayer') _wsSend({ type: 'timerTick', gameId: currentGameId, sec: _timerSec });
   _timerInterval = setInterval(() => {
     if (!running || document.getElementById('game').classList.contains('hidden')) { stopTurnTimer(); return; }
     _timerSec--;
     _updateTimerDisplay();
+    if (gameMode === 'multiplayer') _wsSend({ type: 'timerTick', gameId: currentGameId, sec: _timerSec });
     if (_timerSec <= 0) {
       stopTurnTimer();
       toast('Time up — turn passes!', 1);
@@ -334,6 +368,10 @@ function renderUI(){
   const l2=document.getElementById('p2type-lbl');
   if(l1&&p1T){l1.textContent='TYPE: '+p1T.toUpperCase();l1.style.color=p1T==='solid'?'#e8b800':'#4488ff';}
   if(l2&&p2T){l2.textContent='TYPE: '+p2T.toUpperCase();l2.style.color=p2T==='solid'?'#e8b800':'#4488ff';}
+  const pt1=document.getElementById('pt1');
+  const pt2=document.getElementById('pt2');
+  if(pt1)pt1.textContent=p1T?p1T.toUpperCase():'—';
+  if(pt2)pt2.textContent=p2T?p2T.toUpperCase():'—';
   const tb=document.getElementById('tbt');tb.innerHTML='';
   balls.filter(b=>b.id!==0&&!b.out).forEach(b=>{
     const d=document.createElement('div');
@@ -398,6 +436,10 @@ C.addEventListener('mousemove',e=>{
       angle=Math.atan2(my-cue.y,mx-cue.x);
       document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
       aiming=true;
+      if(gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){
+        const _n=Date.now();
+        if(_n-_lastCueUpdateWs>32){_lastCueUpdateWs=_n;_wsSend({type:'cueUpdate',gameId:currentGameId,angle,x:cue.x,y:cue.y});}
+      }
     }
   }
 });
