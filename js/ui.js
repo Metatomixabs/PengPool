@@ -61,10 +61,20 @@ function _wsSend(obj) {
   if (_ws && _ws.readyState === WebSocket.OPEN) _ws.send(JSON.stringify(obj));
 }
 
+function _showWaitingOverlay() {
+  const el = document.getElementById('waitingOverlay');
+  if (el) el.classList.add('on');
+}
+function _hideWaitingOverlay() {
+  const el = document.getElementById('waitingOverlay');
+  if (el) el.classList.remove('on');
+}
+
 function _wsOnMessage(msg) {
   const G = window.PengPoolGame;
   if (msg.type === 'ready') {
     console.log('Ready received, opponentAlias:', msg.opponentAlias);
+    _hideWaitingOverlay();
     _startMatchCountdown(msg.opponentAddr, msg.opponentAlias || '');
   }
   else if (msg.type === 'state') {
@@ -76,6 +86,8 @@ function _wsOnMessage(msg) {
     initState();
   }
   else if (msg.type === 'cueUpdate') {
+    // Ignore if opponent's shot is already in flight (guards against stale in-flight messages)
+    if (G && !G.isMyLastShot()) return;
     _oppCueAngle = msg.angle;
     _oppCueActive = true;
   }
@@ -86,11 +98,13 @@ function _wsOnMessage(msg) {
     if (G) G.applyRemoteShoot();
   }
   else if (msg.type === 'frame') {
-    // Live ball positions from shooter — update directly for real-time animation
+    // Live ball positions from shooter — cue must not be visible during shot
+    _oppCueActive = false;
     if (G) G.applyFrame(msg.balls);
   }
   else if (msg.type === 'result') {
     // Authoritative final state from the shooter — apply and update turn
+    _oppCueActive = false;
     console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
     if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
   }
@@ -347,6 +361,7 @@ function show(id) {
     const el = document.getElementById(s); if (el) el.classList.add('hidden');
   });
   if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; }
+  if (id !== 'game') _hideWaitingOverlay();
   const el = document.getElementById(id); if (el) el.classList.remove('hidden');
 }
 
@@ -608,7 +623,7 @@ async function _loadGames(){
       if(Number(mg.status)===1){ // ACTIVE — P2 joined
         currentGameId=myGameId;currentGameData=mg;myPlayerNum=1;gameMode='multiplayer';
         myGameId=null;clearInterval(_mmCdInterval);_mmCdInterval=null;
-        show('game');
+        show('game');_showWaitingOverlay();
         _connectWS(currentGameId,1,w.getAddress());
         return;
       }
@@ -673,7 +688,7 @@ async function _joinGame(gameId,gameData){
     const fresh=await w.getGame(gameId);
     currentGameId=gameId;currentGameData=fresh;myPlayerNum=2;gameMode='multiplayer';
     clearInterval(_mmCdInterval);_mmCdInterval=null;
-    show('game');
+    show('game');_showWaitingOverlay();
     _connectWS(currentGameId,2,w.getAddress());
   }catch(e){
     toast(e.message.replace('[PengPool] ',''),1);
