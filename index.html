@@ -101,6 +101,8 @@
 <!-- GAME — always rendered, just hidden visually -->
 <div id="game" class="hidden">
   <div id="game-bg">
+  <img id="bg1" src="assets/backgrounds/fondo1.png" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;display:block;">
+  <img id="bg2" src="assets/backgrounds/fondo2.png" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;display:none;">
 </div>
 <canvas id="cue-overlay" style="background:transparent; position:fixed; z-index:100; pointer-events:none"></canvas>
 <canvas id="particle-canvas" style="position:fixed;inset:0;width:100%;height:100%;z-index:50;pointer-events:none"></canvas>
@@ -110,6 +112,7 @@
     <div class="bonus-badge" id="bonusBadge"></div>
     <div style="display:flex;align-items:center;gap:8px">
       <button class="gbk" id="btnMusicNav" onclick="toggleMusic()" style="letter-spacing:1px">♪ OFF</button><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.5" oninput="setMusicVolume(this.value)" title="Volume">
+      <button class="gbk" id="btn-bg" onclick="toggleBg()" style="letter-spacing:1px">BG</button>
       <button class="gbk" id="btnRules" style="letter-spacing:1px">RULES</button>
       <button class="gbk" id="btnLobby">← LOBBY</button>
     </div>

@@ -391,9 +391,8 @@ C.addEventListener('mousemove',e=>{
     if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
     if(ballInHand){
       // Drag cue ball preview along the vertical head-string (x fixed, y free)
-      const MARGIN=R+24;
       cue.x=BIH_X;
-      cue.y=Math.max(MARGIN,Math.min(H-MARGIN,my));
+      cue.y=Math.max(WT+R,Math.min(WB-R,my));
       aiming=false;
     } else {
       angle=Math.atan2(my-cue.y,mx-cue.x);

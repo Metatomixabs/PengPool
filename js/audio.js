@@ -140,3 +140,10 @@ function playRailHit(){
     src.connect(g);g.connect(ac.destination);src.start();
   }catch(e){}
 }
+
+let currentBg = 1;
+function toggleBg(){
+  currentBg = currentBg === 1 ? 2 : 1;
+  document.getElementById('bg1').style.display = currentBg === 1 ? 'block' : 'none';
+  document.getElementById('bg2').style.display = currentBg === 2 ? 'block' : 'none';
+}
