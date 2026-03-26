@@ -237,6 +237,12 @@ window._wsOnResult = function(data) {
     }
     console.log('[SYNC] _wsOnResult fired — sending to server, cur='+data.cur+' balls='+data.balls.length);
     _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
+    // If the shooter keeps their turn (pocketed a ball without foul), reset the timer.
+    // This must happen after the result is sent so it doesn't interfere with the sync flow.
+    // resetTurnTimer() will also broadcast timerTick sec:20 so the opponent's display resets too.
+    if (data.cur === myPlayerNum) {
+      resetTurnTimer();
+    }
   }
 };
 
@@ -469,10 +475,10 @@ C.addEventListener('mousedown',e=>{
     document.getElementById('gstatus').textContent='HOLD TO CHARGE — RELEASE TO SHOOT';
     return;
   }
-  charging=true;cs=Date.now();pwr=0;
+  charging=true;cs=Date.now();pwr=0;_pwrDir=1;
 });
-C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2)shoot();pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
-C.addEventListener('mouseleave',()=>{aiming=false;if(charging){charging=false;if(pwr>2)shoot();pwr=0;}});
+C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
+C.addEventListener('mouseleave',()=>{aiming=false;if(charging){charging=false;if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}pwr=0;}});
 
 // ── BUTTONS ──
 document.getElementById('btnEnter').addEventListener('click',()=>show('lobby'));
@@ -722,15 +728,15 @@ async function _cancelMyGame(){
   let dragging=false;
 
   const SPIN_NAMES={
-    'top':'Efecto alto (follow)',
-    'bottom':'Efecto bajo (draw)',
-    'left':'Efecto izquierda',
-    'right':'Efecto derecha',
-    'top-left':'Efecto alto-izq',
-    'top-right':'Efecto alto-der',
-    'bottom-left':'Efecto bajo-izq',
-    'bottom-right':'Efecto bajo-der',
-    'center':'Centro (sin efecto)'
+    'top':'Top spin (follow)',
+    'bottom':'Back spin (draw)',
+    'left':'Left spin',
+    'right':'Right spin',
+    'top-left':'Top-left spin',
+    'top-right':'Top-right spin',
+    'bottom-left':'Bottom-left spin',
+    'bottom-right':'Bottom-right spin',
+    'center':'Center (no spin)'
   };
 
   function updateSpin(ex,ey){
@@ -749,7 +755,7 @@ async function _cancelMyGame(){
     const tx=Math.abs(spinX)>0.25?( spinX>0?'right':'left'):'';
     const ty=Math.abs(spinY)>0.25?( spinY>0?'top':'bottom'):'';
     const key=(ty&&tx)?ty+'-'+tx:ty||tx||'center';
-    lbl.textContent=SPIN_NAMES[key]||'Centro';
+    lbl.textContent=SPIN_NAMES[key]||'Center';
   }
 
   pad.addEventListener('mousedown',e=>{dragging=true;updateSpin(e.clientX,e.clientY);e.preventDefault();});
@@ -762,8 +768,14 @@ async function _cancelMyGame(){
   pad.addEventListener('dblclick',()=>{
     spinX=0;spinY=0;
     dot.style.left='50%';dot.style.top='50%';
-    lbl.textContent='Centro (sin efecto)';
+    lbl.textContent='Center (no spin)';
   });
+
+  window.resetSpin = function(){
+    spinX=0;spinY=0;
+    dot.style.left='50%';dot.style.top='50%';
+    lbl.textContent='Center (no spin)';
+  };
 })();
 
 // ── START — init and loop run immediately, game screen just hidden visually ──
