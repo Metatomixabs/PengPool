@@ -551,12 +551,12 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       content.innerHTML='<div class="level-noconn">Connect your wallet to view your profile.</div>';
       return;
     }
-    const addr=w.getAddress();
+    const addr=w.getAddress().toLowerCase();
     content.innerHTML='<div class="level-loading">Loading…</div>';
     try{
       const res=await fetch(HTTP_URL+'/api/player/'+encodeURIComponent(addr));
       const player=await res.json();
-      if(!player){
+      if(!player||player.error){
         content.innerHTML='<div class="level-noconn">Play your first PvP match to create your profile.<br><span style="font-size:10px;color:var(--t3)">+20 pts per match · +30 pts bonus if you win</span></div>';
         return;
       }
