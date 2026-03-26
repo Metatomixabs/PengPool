@@ -95,82 +95,95 @@ function _readBody(req) {
 }
 
 const httpServer = http.createServer(async (req, res) => {
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type" });
-    res.end(); return;
-  }
+  // Guard: catch any unhandled async error so the server process never crashes.
+  // Without this, a rejected await (e.g. client disconnects mid-request while the
+  // DB query is still running) becomes an unhandled promise rejection that kills
+  // the Node.js 15+ process, dropping all active WebSocket connections mid-game.
+  const _safeEnd = (status, headers, body) => {
+    try {
+      if (!res.headersSent) { res.writeHead(status, headers); res.end(body); }
+    } catch (_) {}
+  };
 
-  // ── existing alias endpoints ──────────────────────────────────────────────
-  if (req.method === "GET" && req.url === "/aliases") {
-    res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-    res.end(JSON.stringify(Object.fromEntries(aliases))); return;
-  }
-  if (req.method === "POST" && req.url === "/alias") {
-    const body = await _readBody(req);
-    try {
-      const { addr, alias } = JSON.parse(body);
-      if (addr && alias) aliases.set(addr.toLowerCase(), String(alias).slice(0, 20));
-    } catch {}
-    res.writeHead(200, { "Content-Type": "text/plain", ...CORS });
-    res.end("OK"); return;
-  }
+  try {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type" });
+      res.end(); return;
+    }
 
-  // ── player profile API ────────────────────────────────────────────────────
-  if (req.method === "GET" && req.url.startsWith("/api/player/")) {
-    const wallet = decodeURIComponent(req.url.slice("/api/player/".length));
-    try {
-      const player = await db.getPlayer(wallet);
+    // ── existing alias endpoints ──────────────────────────────────────────────
+    if (req.method === "GET" && req.url === "/aliases") {
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify(player || null));
-    } catch (e) {
-      console.error("[api] getPlayer:", e.message);
-      res.writeHead(500, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify({ error: e.message }));
+      res.end(JSON.stringify(Object.fromEntries(aliases))); return;
     }
-    return;
-  }
-  if (req.method === "POST" && req.url === "/api/player/register") {
-    try {
-      const { wallet, username } = JSON.parse(await _readBody(req));
-      console.log(`[api] register wallet=${wallet?.slice(0,10)}… username="${username}"`);
-      const player = await db.registerPlayer(wallet, username);
-      console.log(`[api] register OK → level=${player.level} pts=${player.points}`);
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify(player));
-    } catch (e) {
-      console.log(`[api] register FAILED: ${e.message}`);
-      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify({ error: e.message }));
+    if (req.method === "POST" && req.url === "/alias") {
+      const body = await _readBody(req);
+      try {
+        const { addr, alias } = JSON.parse(body);
+        if (addr && alias) aliases.set(addr.toLowerCase(), String(alias).slice(0, 20));
+      } catch {}
+      res.writeHead(200, { "Content-Type": "text/plain", ...CORS });
+      res.end("OK"); return;
     }
-    return;
-  }
-  if (req.method === "POST" && req.url === "/api/player/rename") {
-    try {
-      const { wallet, username } = JSON.parse(await _readBody(req));
-      const player = await db.renamePlayer(wallet, username);
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify(player));
-    } catch (e) {
-      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify({ error: e.message }));
-    }
-    return;
-  }
-  if (req.method === "POST" && req.url === "/api/player/game-result") {
-    try {
-      const { wallet, won } = JSON.parse(await _readBody(req));
-      await db.recordGameResult(wallet, !!won);
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) {
-      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
-      res.end(JSON.stringify({ error: e.message }));
-    }
-    return;
-  }
 
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("PengPool sync OK\n");
+    // ── player profile API ────────────────────────────────────────────────────
+    if (req.method === "GET" && req.url.startsWith("/api/player/")) {
+      const wallet = decodeURIComponent(req.url.slice("/api/player/".length));
+      try {
+        const player = await db.getPlayer(wallet);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify(player || null));
+      } catch (e) {
+        console.error("[api] getPlayer:", e.message);
+        _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/player/register") {
+      try {
+        const { wallet, username } = JSON.parse(await _readBody(req));
+        console.log(`[api] register wallet=${wallet?.slice(0,10)}… username="${username}"`);
+        const player = await db.registerPlayer(wallet, username);
+        console.log(`[api] register OK → level=${player.level} pts=${player.points}`);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify(player));
+      } catch (e) {
+        console.log(`[api] register FAILED: ${e.message}`);
+        _safeEnd(400, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/player/rename") {
+      try {
+        const { wallet, username } = JSON.parse(await _readBody(req));
+        const player = await db.renamePlayer(wallet, username);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify(player));
+      } catch (e) {
+        _safeEnd(400, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/player/game-result") {
+      try {
+        const { wallet, won } = JSON.parse(await _readBody(req));
+        await db.recordGameResult(wallet, !!won);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        _safeEnd(400, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("PengPool sync OK\n");
+
+  } catch (e) {
+    // Last-resort catch: prevents any leaked async error from crashing the process.
+    console.error("[http] unhandled error:", e.message);
+    _safeEnd(500, { "Content-Type": "text/plain", ...CORS }, "Internal server error");
+  }
 });
 
 const wss = new WebSocket.Server({ server: httpServer });
