@@ -55,10 +55,11 @@ async function init() {
   // Add UNIQUE constraint even if the table already existed without it.
   // PostgreSQL allows duplicate NULLs in UNIQUE columns — wallets without
   // a username won't conflict with each other.
-  await pool.query(`
-    ALTER TABLE players
-    ADD CONSTRAINT IF NOT EXISTS players_username_unique UNIQUE (username)
-  `);
+  try {
+    await pool.query(`ALTER TABLE players ADD CONSTRAINT players_username_unique UNIQUE (username)`);
+  } catch (e) {
+    if (!e.message.includes('already exists')) throw e;
+  }
   console.log("[db] players table ready");
 }
 

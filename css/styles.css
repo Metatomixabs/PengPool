@@ -247,6 +247,8 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 .umodal-input:focus{border-color:var(--g)}
 .umodal-btn{background:var(--g);border:none;border-radius:6px;color:#000;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;letter-spacing:2px;padding:11px;cursor:pointer;transition:opacity .15s}
 .umodal-btn:hover{opacity:.85}
+.umodal-btn:disabled{opacity:.5;cursor:not-allowed}
+.umodal-err{font-family:'Space Mono',monospace;font-size:10px;color:#ff6b6b;text-align:center;margin-top:-6px}
 
 /* ── PRACTICE MODE SELECT ── */
 #pracModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);z-index:700;align-items:center;justify-content:center}

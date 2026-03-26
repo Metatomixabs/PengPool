@@ -279,11 +279,38 @@ function _showUsernameModal(addr, onSave) {
   const btn   = document.getElementById('usernameSubmit');
   if (!modal || !input || !btn) { if (onSave) onSave(null); return; }
   input.value = getStoredUsername(addr) || '';
+  // Clear any leftover error from a previous attempt
+  const oldErr = modal.querySelector('.umodal-err');
+  if (oldErr) oldErr.remove();
   modal.classList.add('on');
   setTimeout(() => input.focus(), 50);
-  const save = () => {
+  const save = async () => {
     const name = input.value.trim().slice(0, 20);
     if (!name) { input.focus(); return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    // Remove previous inline error
+    const prevErr = modal.querySelector('.umodal-err');
+    if (prevErr) prevErr.remove();
+    try {
+      const res = await fetch(HTTP_URL + '/api/player/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: addr, username: name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const err = document.createElement('div');
+        err.className = 'umodal-err';
+        err.textContent = data.error || 'Name unavailable — try another';
+        btn.after(err);
+        btn.disabled = false; btn.textContent = 'SAVE';
+        input.focus();
+        return;
+      }
+    } catch (_) {
+      // Server unreachable — allow saving locally anyway
+    }
+    btn.disabled = false; btn.textContent = 'SAVE';
     setStoredUsername(addr, name);
     modal.classList.remove('on');
     if (onSave) onSave(name);
@@ -521,27 +548,27 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
     overlay.classList.add('on');
     const w=window.PengPoolWeb3;
     if(!w||!w.isConnected()){
-      content.innerHTML='<div class="level-noconn">Conecta tu wallet para ver tu perfil.</div>';
+      content.innerHTML='<div class="level-noconn">Connect your wallet to view your profile.</div>';
       return;
     }
     const addr=w.getAddress();
-    content.innerHTML='<div class="level-loading">Cargando…</div>';
+    content.innerHTML='<div class="level-loading">Loading…</div>';
     try{
       const res=await fetch(HTTP_URL+'/api/player/'+encodeURIComponent(addr));
       const player=await res.json();
       if(!player){
-        content.innerHTML='<div class="level-noconn">Juega tu primera partida PvP para crear tu perfil.<br><span style="font-size:10px;color:var(--t3)">+20 pts por partida · +30 pts extra si ganas</span></div>';
+        content.innerHTML='<div class="level-noconn">Play your first PvP match to create your profile.<br><span style="font-size:10px;color:var(--t3)">+20 pts per match · +30 pts bonus if you win</span></div>';
         return;
       }
       const winRate=player.games_played>0?Math.round(player.games_won/player.games_played*100):0;
-      const lvlLabel=player.level>=50?'NIVEL MAX':'NIVEL '+player.level;
-      const nextInfo=player.level<50?player.points_to_next_level+' pts para NIVEL '+(player.level+1):'Nivel máximo alcanzado';
+      const lvlLabel=player.level>=50?'LEVEL MAX':'LEVEL '+player.level;
+      const nextInfo=player.level<50?player.points_to_next_level+' pts to LEVEL '+(player.level+1):'Max level reached';
       content.innerHTML=`
         <div class="level-name">${player.username||shortenAddr(addr)}</div>
         <div class="level-badge">⭐ ${lvlLabel} &nbsp;·&nbsp; ${player.points} pts</div>
         <div class="level-progress-wrap">
           <div class="level-progress-label">
-            <span>Progreso</span>
+            <span>Progress</span>
             <span>${nextInfo}</span>
           </div>
           <div class="level-progress-bar">
@@ -551,11 +578,11 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
         <div class="level-stats">
           <div class="level-stat">
             <div class="level-stat-val">${player.games_played}</div>
-            <div class="level-stat-lbl">Partidas PvP</div>
+            <div class="level-stat-lbl">PvP Matches</div>
           </div>
           <div class="level-stat">
             <div class="level-stat-val">${player.games_won}</div>
-            <div class="level-stat-lbl">Victorias</div>
+            <div class="level-stat-lbl">Wins</div>
           </div>
           <div class="level-stat">
             <div class="level-stat-val">${winRate}%</div>
@@ -563,7 +590,7 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
           </div>
         </div>`;
     }catch(e){
-      content.innerHTML='<div class="level-noconn">Error al cargar perfil.</div>';
+      content.innerHTML='<div class="level-noconn">Failed to load profile.</div>';
     }
   }
 

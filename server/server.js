@@ -132,10 +132,13 @@ const httpServer = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/player/register") {
     try {
       const { wallet, username } = JSON.parse(await _readBody(req));
+      console.log(`[api] register wallet=${wallet?.slice(0,10)}… username="${username}"`);
       const player = await db.registerPlayer(wallet, username);
+      console.log(`[api] register OK → level=${player.level} pts=${player.points}`);
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
       res.end(JSON.stringify(player));
     } catch (e) {
+      console.log(`[api] register FAILED: ${e.message}`);
       res.writeHead(400, { "Content-Type": "application/json", ...CORS });
       res.end(JSON.stringify({ error: e.message }));
     }
@@ -342,7 +345,7 @@ function _send(ws, obj) {
   return false;
 }
 
-db.init().catch(e => console.error("[db] init failed:", e.message));
+db.init().catch(e => console.error("[db] init failed:", e.message, e.stack));
 
 httpServer.listen(PORT, () => {
   console.log(`PengPool sync server  →  ws://localhost:${PORT}`);
