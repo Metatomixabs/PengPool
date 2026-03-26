@@ -49,9 +49,15 @@ async function init() {
       points       INTEGER NOT NULL DEFAULT 0,
       games_played INTEGER NOT NULL DEFAULT 0,
       games_won    INTEGER NOT NULL DEFAULT 0,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT players_username_unique UNIQUE (username)
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+  // Add UNIQUE constraint even if the table already existed without it.
+  // PostgreSQL allows duplicate NULLs in UNIQUE columns — wallets without
+  // a username won't conflict with each other.
+  await pool.query(`
+    ALTER TABLE players
+    ADD CONSTRAINT IF NOT EXISTS players_username_unique UNIQUE (username)
   `);
   console.log("[db] players table ready");
 }

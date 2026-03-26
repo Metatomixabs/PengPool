@@ -568,6 +568,7 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
   }
 
   document.getElementById('btnLevel').addEventListener('click',openLevelPanel);
+  document.getElementById('btnLevelLobby').addEventListener('click',openLevelPanel);
   document.getElementById('btnLevelClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
 })();
