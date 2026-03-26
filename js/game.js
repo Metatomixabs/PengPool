@@ -35,6 +35,30 @@ const BD = {
   12:{c:'#7b2fbe',s:1},13:{c:'#e05a00',s:1},14:{c:'#0d8a3c',s:1},
   15:{c:'#8b2000',s:1}
 };
+// Preload sprite sheets for balls 1-15 (120 frames, 12 cols × 10 rows each)
+// Each sprite is preprocessed on an offscreen canvas: black pixels (r<40,g<40,b<40) → transparent
+const ballSprites = {};
+(function(){
+  const P='assets/balls_sprites/';
+  function makeSprite(id,src){
+    const img=new Image();
+    img.onload=function(){
+      const tmp=document.createElement('canvas');
+      tmp.width=img.naturalWidth;tmp.height=img.naturalHeight;
+      const ctx=tmp.getContext('2d');
+      ctx.drawImage(img,0,0);
+      const imgd=ctx.getImageData(0,0,tmp.width,tmp.height);
+      const d=imgd.data;
+      for(let i=0;i<d.length;i+=4){if(d[i]<40&&d[i+1]<40&&d[i+2]<40)d[i+3]=0;}
+      ctx.putImageData(imgd,0,0);
+      ballSprites[id]=tmp;
+    };
+    img.src=src;
+  }
+  for(let id=1;id<=8;id++) makeSprite(id,P+'solid_'+id+'.png');
+  for(let id=9;id<=15;id++) makeSprite(id,P+'strip_'+id+'.png');
+})();
+const SPRITE_COLS=12,SPRITE_ROWS=10,SPRITE_FRAMES=120;
 const PRAIL=28;
 const PKT=[
   {x:25,     y:65,     r:24, type:'corner'},  // esquina TL
@@ -163,23 +187,25 @@ function drawTrails(){
 
 function initState() {
   balls=[]; cur=1; p1t=[]; p2t=[]; p1T=null; p2T=null; typed=false;
-  anyP=false; cueP=false; foulThisTurn=false; firstContactId=null; _typedAtShotStart=false; _noOwnBallsAtShotStart=false; bonusShots=0; ballInHand=false; p1EightPocket=null; p2EightPocket=null; shots=0; running=true; guideOn=true;
+  anyP=false; cueP=false; foulThisTurn=false; firstContactId=null; _typedAtShotStart=false; _noOwnBallsAtShotStart=false; bonusShots=0; ballInHand=false; p1EightPocket=null; p2EightPocket=null; shots=0; running=true; guideOn=true; isBreakShot=true;
   aiming=false; angle=0; pwr=0; charging=false; moving=false; spinX=0; spinY=0; _pwrDir=1;
   trails={}; particles=[];
   // Reset multiplayer sync state so stale frame targets don't corrupt the new rack
   _remoteTargets=null;
   _myLastShot=true;
-  cue={id:0,x:180,y:H/2,vx:0,vy:0,out:false};
+  cue={id:0,x:180,y:H/2,vx:0,vy:0,out:false,totalRotation:0,visualAngle:0};
   balls.push(cue);
   // Fixed standard 8-ball rack (WPA rules):
   //   apex = 1, center = 8, back corners = solid(6) + stripe(15)
   //   rows: [1] [9,2] [10,8,3] [4,11,12,5] [6,13,14,7,15]
-  const RACK=[1, 9,2, 10,8,3, 4,11,12,5, 6,13,14,7,15];
-  const rx=490,ry=H/2,sp=R*2.08,S=Math.sin(Math.PI/3);
+  // Row1: 1(S) | Row2: stripe,stripe | Row3: solid,8,solid | Row4: stripe,solid,stripe,stripe | Row5: solid,stripe,solid,stripe,solid
+  const RACK=[1, 9,10, 2,8,3, 11,4,12,13, 5,14,6,15,7];
+  const rx=525,ry=H/2,S=Math.sin(Math.PI/3);
+  const spx=Math.sqrt(3)*R*1.05, spy=(R/S)*1.05;  // 5% gap so balls touch without overlapping
   const pos=[[0,0],[1,-S],[1,S],[2,-2*S],[2,0],[2,2*S],[3,-3*S],[3,-S],[3,S],[3,3*S],[4,-4*S],[4,-2*S],[4,0],[4,2*S],[4,4*S]];
   for(let i=0;i<15;i++){
     const n=RACK[i],d=BD[n],[px,py]=pos[i];
-    balls.push({id:n,x:rx+px*sp,y:ry+py*sp,vx:0,vy:0,c:d.c,s:d.s,out:false});
+    balls.push({id:n,x:rx+px*spx,y:ry+py*spy,vx:0,vy:0,c:d.c,s:d.s,out:false,totalRotation:0,visualAngle:0});
   }
   document.getElementById('shotsv').textContent='0';
   document.getElementById('pwf').style.width='0%';
@@ -214,6 +240,7 @@ function phys() {
         }
       }
       b.x+=b.vx;b.y+=b.vy;b.vx*=FRIC;b.vy*=FRIC;
+      if(b.id!==0){b.totalRotation=b.totalRotation+spd*0.075;}
       if(b.vx*b.vx+b.vy*b.vy<MINS*MINS){b.vx=0;b.vy=0;}
       // ── BANDAS ──
       const midGap=35;      // apertura tronera central top/bottom
@@ -266,6 +293,17 @@ function phys() {
         }
       }
       for(const s of debugSegments) ballSegmentCollision(b, s[0], s[1], s[2], s[3]);
+      // Update visual rotation direction AFTER all velocity reflections are applied
+      if(b.id!==0){
+        const curSpd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+        if(curSpd>0.3){
+          const tgt=Math.atan2(b.vy,b.vx);
+          let diff=tgt-b.visualAngle;
+          while(diff<-Math.PI)diff+=Math.PI*2;
+          while(diff>Math.PI)diff-=Math.PI*2;
+          b.visualAngle+=diff*0.3;
+        }
+      }
     }
   }
   for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
@@ -337,7 +375,7 @@ function pocketed(b, pi){
       if(cur===1)p1EightPocket=pi;else p2EightPocket=pi;
       toast('8-ball must go in the same pocket!',0);
     }
-  } else {
+  } else if(!isBreakShot){
     foulThisTurn=true;
     toast('⚠️ FOUL — wrong ball!',1);
   }
@@ -392,6 +430,7 @@ function shotEnd(){
   if(!running)return;
   // Opponent's shot: physics runs only on their machine — just wait for result message
   if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot)return;
+  isBreakShot=false;  // break shot privilege ends after the first shot resolves
 
   // ── First-contact foul check ───────────────────────────────────────────────
   // Only applies when it's MY shot (cueP catches scratch; pocketed() already set
@@ -475,6 +514,15 @@ function shotEnd(){
   }
   // Trigger bot shot if it's now the bot's turn (covers keep-turn after a pot)
   if(typeof window._triggerBotIfNeeded==='function')window._triggerBotIfNeeded();
+  // In non-multiplayer: reset timer whenever it's the local player's turn.
+  // switchTurn() handles turn-change resets; this covers keep-turn after a pot (anyP)
+  // and keep-turn from bonus shots — cases where switchTurn() is never called.
+  if(running&&(typeof gameMode==='undefined'||gameMode!=='multiplayer')){
+    const _isBot=typeof gameMode!=='undefined'&&gameMode==='bot';
+    const _myTurn=_isBot?(cur===myPlayerNum):true;
+    console.log('[TIMER RESET]',{gameMode,cur,myPlayerNum,anyP,isBot:_isBot,_myTurn,running});
+    if(_myTurn&&typeof resetTurnTimer==='function')resetTurnTimer();
+  }
 }
 
 function _gatherResult(){
@@ -619,25 +667,44 @@ function drawFelt(){
 function drawBall(b){
   if(b.out)return;
   cx.save();cx.translate(b.x,b.y);
+  // Drop shadow
   cx.beginPath();cx.arc(2,3,R,0,Math.PI*2);cx.fillStyle='rgba(0,0,0,.3)';cx.fill();
   if(b.id===0){
+    // Cue ball — plain white gradient, no sprite
     const g=cx.createRadialGradient(-3,-3,1,0,0,R);g.addColorStop(0,'#fff');g.addColorStop(1,'#ccc');
     cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.fillStyle=g;cx.fill();
-  }else if(b.s){
-    const g=cx.createRadialGradient(-2,-2,1,0,0,R);g.addColorStop(0,'#fff');g.addColorStop(1,'#e0e0e0');
-    cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.fillStyle=g;cx.fill();
-    cx.save();cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.clip();
-    cx.fillStyle=b.c;cx.fillRect(-R,-R*.42,R*2,R*.84);cx.restore();
   }else{
-    const g=cx.createRadialGradient(-3,-3,1,0,0,R);
-    g.addColorStop(0,lx(b.c,50));g.addColorStop(.5,b.c);g.addColorStop(1,dk(b.c,40));
-    cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.fillStyle=g;cx.fill();
+    const sprite=ballSprites[b.id];
+    const frameIndex=Math.floor((b.totalRotation||0)*13)%SPRITE_FRAMES;
+    // --- clipped region: base color + sprite ---
+    cx.save();
+    cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.clip();
+    if(sprite){
+      const fw=sprite.width/SPRITE_COLS;
+      const fh=sprite.height/SPRITE_ROWS;
+      const col=frameIndex%SPRITE_COLS;
+      const row=Math.floor(frameIndex/SPRITE_COLS);
+      // Rotate canvas so sprite rolling axis aligns with movement direction
+      cx.rotate(b.visualAngle||0);
+      // Solids: base color from BD; stripes: white so the sprite's own colors show correctly
+      cx.fillStyle=b.s?'#ffffff':BD[b.id].c;cx.fillRect(-R,-R,R*2,R*2);
+      // Sprite (black bg already transparent) overlaid cleanly on the base color
+      cx.drawImage(sprite,col*fw,row*fh,fw,fh,-R,-R,R*2,R*2);
+    }else{
+      // Fallback if sprite not yet loaded
+      if(b.s){
+        const g=cx.createRadialGradient(-2,-2,1,0,0,R);g.addColorStop(0,'#fff');g.addColorStop(1,'#e0e0e0');
+        cx.fillStyle=g;cx.fillRect(-R,-R,R*2,R*2);
+        cx.fillStyle=b.c;cx.fillRect(-R,-R*.42,R*2,R*.84);
+      }else{
+        const g=cx.createRadialGradient(-3,-3,1,0,0,R);
+        g.addColorStop(0,lx(b.c,50));g.addColorStop(.5,b.c);g.addColorStop(1,dk(b.c,40));
+        cx.fillStyle=g;cx.fillRect(-R,-R,R*2,R*2);
+      }
+    }
+    cx.restore(); // removes clip
   }
-  if(b.id!==0){
-    cx.beginPath();cx.arc(0,0,R*.4,0,Math.PI*2);cx.fillStyle='rgba(255,255,255,.9)';cx.fill();
-    cx.fillStyle='#111';cx.font='bold '+(R*.5)+'px sans-serif';
-    cx.textAlign='center';cx.textBaseline='middle';cx.fillText(b.id,0,0);
-  }
+  // Specular highlight + border drawn over everything, no clip
   cx.beginPath();cx.arc(-3,-3,R*.27,0,Math.PI*2);cx.fillStyle='rgba(255,255,255,.22)';cx.fill();
   cx.beginPath();cx.arc(0,0,R,0,Math.PI*2);cx.strokeStyle='rgba(0,0,0,.3)';cx.lineWidth=1;cx.stroke();
   cx.restore();
