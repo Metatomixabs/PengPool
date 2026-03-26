@@ -299,6 +299,12 @@ function _registerAlias(addr, alias) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ addr, alias }),
   }).catch(() => {});
+  // Also register in the player profile DB (upserts username, no-op if taken)
+  fetch(HTTP_URL + '/api/player/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wallet: addr, username: alias }),
+  }).catch(() => {});
 }
 
 function _afterConnect(agw) {
@@ -503,6 +509,67 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
   document.getElementById('btnRulesClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
+
+// ── LEVEL PANEL ──────────────────────────────────────────────────────────────
+(function(){
+  const overlay=document.getElementById('levelModal');
+  const content=document.getElementById('levelContent');
+  const close=()=>overlay.classList.remove('on');
+
+  async function openLevelPanel(){
+    overlay.classList.add('on');
+    const w=window.PengPoolWeb3;
+    if(!w||!w.isConnected()){
+      content.innerHTML='<div class="level-noconn">Conecta tu wallet para ver tu perfil.</div>';
+      return;
+    }
+    const addr=w.getAddress();
+    content.innerHTML='<div class="level-loading">Cargando…</div>';
+    try{
+      const res=await fetch(HTTP_URL+'/api/player/'+encodeURIComponent(addr));
+      const player=await res.json();
+      if(!player){
+        content.innerHTML='<div class="level-noconn">Juega tu primera partida PvP para crear tu perfil.<br><span style="font-size:10px;color:var(--t3)">+20 pts por partida · +30 pts extra si ganas</span></div>';
+        return;
+      }
+      const winRate=player.games_played>0?Math.round(player.games_won/player.games_played*100):0;
+      const lvlLabel=player.level>=50?'NIVEL MAX':'NIVEL '+player.level;
+      const nextInfo=player.level<50?player.points_to_next_level+' pts para NIVEL '+(player.level+1):'Nivel máximo alcanzado';
+      content.innerHTML=`
+        <div class="level-name">${player.username||shortenAddr(addr)}</div>
+        <div class="level-badge">⭐ ${lvlLabel} &nbsp;·&nbsp; ${player.points} pts</div>
+        <div class="level-progress-wrap">
+          <div class="level-progress-label">
+            <span>Progreso</span>
+            <span>${nextInfo}</span>
+          </div>
+          <div class="level-progress-bar">
+            <div class="level-progress-fill" style="width:${player.level_progress_pct}%"></div>
+          </div>
+        </div>
+        <div class="level-stats">
+          <div class="level-stat">
+            <div class="level-stat-val">${player.games_played}</div>
+            <div class="level-stat-lbl">Partidas PvP</div>
+          </div>
+          <div class="level-stat">
+            <div class="level-stat-val">${player.games_won}</div>
+            <div class="level-stat-lbl">Victorias</div>
+          </div>
+          <div class="level-stat">
+            <div class="level-stat-val">${winRate}%</div>
+            <div class="level-stat-lbl">Win Rate</div>
+          </div>
+        </div>`;
+    }catch(e){
+      content.innerHTML='<div class="level-noconn">Error al cargar perfil.</div>';
+    }
+  }
+
+  document.getElementById('btnLevel').addEventListener('click',openLevelPanel);
+  document.getElementById('btnLevelClose').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
 })();
 
 // ── CONNECT WALLET ──

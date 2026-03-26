@@ -114,6 +114,7 @@
     <div style="display:flex;align-items:center;gap:8px">
       <button class="gbk" id="btnMusicNav" onclick="toggleMusic()" style="letter-spacing:1px">♪ OFF</button><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.5" oninput="setMusicVolume(this.value)" title="Volume">
       <button class="gbk" id="btn-bg" onclick="toggleBg()" style="letter-spacing:1px">BG</button>
+      <button class="gbk" id="btnLevel" style="letter-spacing:1px">⭐ NIVEL</button>
       <button class="gbk" id="btnRules" style="letter-spacing:1px">RULES</button>
       <button class="gbk" id="btnLobby">← LOBBY</button>
     </div>
@@ -185,6 +186,15 @@
   <div id="p1type-lbl"></div><div id="p2type-lbl"></div>
   <div id="tbt"></div><div id="stBet"></div><div id="stPot"></div>
   <div id="stProtocol"></div><div id="stWinner"></div><div id="shotsv"></div>
+</div>
+
+<!-- LEVEL PANEL MODAL -->
+<div class="mover" id="levelModal">
+  <div class="mbox level-box">
+    <button class="rules-close" id="btnLevelClose">&#x2715;</button>
+    <div class="rules-title">⭐ PERFIL DE JUGADOR</div>
+    <div id="levelContent"><div class="level-loading">Cargando…</div></div>
+  </div>
 </div>
 
 <!-- RULES MODAL -->

@@ -18,6 +18,7 @@ require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") }
 const http      = require("http");
 const WebSocket = require("ws");
 const { ethers } = require("ethers");
+const db        = require("./db");
 
 const PORT = process.env.PORT || 8080;
 
@@ -84,27 +85,87 @@ const aliases = new Map();
 
 const CORS = { "Access-Control-Allow-Origin": "*" };
 
-const httpServer = http.createServer((req, res) => {
+function _readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", c => { body += c; });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
+
+const httpServer = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type" });
     res.end(); return;
   }
+
+  // ── existing alias endpoints ──────────────────────────────────────────────
   if (req.method === "GET" && req.url === "/aliases") {
     res.writeHead(200, { "Content-Type": "application/json", ...CORS });
     res.end(JSON.stringify(Object.fromEntries(aliases))); return;
   }
   if (req.method === "POST" && req.url === "/alias") {
-    let body = "";
-    req.on("data", c => { body += c; });
-    req.on("end", () => {
-      try {
-        const { addr, alias } = JSON.parse(body);
-        if (addr && alias) aliases.set(addr.toLowerCase(), String(alias).slice(0, 20));
-      } catch {}
-      res.writeHead(200, { "Content-Type": "text/plain", ...CORS });
-      res.end("OK");
-    }); return;
+    const body = await _readBody(req);
+    try {
+      const { addr, alias } = JSON.parse(body);
+      if (addr && alias) aliases.set(addr.toLowerCase(), String(alias).slice(0, 20));
+    } catch {}
+    res.writeHead(200, { "Content-Type": "text/plain", ...CORS });
+    res.end("OK"); return;
   }
+
+  // ── player profile API ────────────────────────────────────────────────────
+  if (req.method === "GET" && req.url.startsWith("/api/player/")) {
+    const wallet = decodeURIComponent(req.url.slice("/api/player/".length));
+    try {
+      const player = await db.getPlayer(wallet);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify(player || null));
+    } catch (e) {
+      console.error("[api] getPlayer:", e.message);
+      res.writeHead(500, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/player/register") {
+    try {
+      const { wallet, username } = JSON.parse(await _readBody(req));
+      const player = await db.registerPlayer(wallet, username);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify(player));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/player/rename") {
+    try {
+      const { wallet, username } = JSON.parse(await _readBody(req));
+      const player = await db.renamePlayer(wallet, username);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify(player));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/player/game-result") {
+    try {
+      const { wallet, won } = JSON.parse(await _readBody(req));
+      await db.recordGameResult(wallet, !!won);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("PengPool sync OK\n");
 });
@@ -224,9 +285,22 @@ wss.on("connection", (ws) => {
       // Relay to opponent so their screen shows the winner
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, msg);
-      // Determine winner address from the stored room addresses
+      // Determine winner/loser addresses from the stored room
       const winnerAddr = msg.winnerNum === 1 ? room.p1addr : room.p2addr;
-      if (!winnerAddr || winnerAddr === "0x0000000000000000000000000000000000000000") {
+      const loserAddr  = msg.winnerNum === 1 ? room.p2addr : room.p1addr;
+
+      // Record PvP result in DB for both players (fire-and-forget)
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (winnerAddr && winnerAddr !== ZERO) {
+        db.recordGameResult(winnerAddr, true).catch(e =>
+          console.error(`[db] game-result winner P${msg.winnerNum}:`, e.message));
+      }
+      if (loserAddr && loserAddr !== ZERO) {
+        db.recordGameResult(loserAddr, false).catch(e =>
+          console.error(`[db] game-result loser:`, e.message));
+      }
+
+      if (!winnerAddr || winnerAddr === ZERO) {
         console.warn(`[settle] game ${ws._gameId}: no address for winner P${msg.winnerNum}`);
         return;
       }
@@ -267,6 +341,8 @@ function _send(ws, obj) {
   console.warn(`[_send] FAILED — ws=${ws?`readyState:${ws.readyState}`:'null'} msg=${obj.type}`);
   return false;
 }
+
+db.init().catch(e => console.error("[db] init failed:", e.message));
 
 httpServer.listen(PORT, () => {
   console.log(`PengPool sync server  →  ws://localhost:${PORT}`);
