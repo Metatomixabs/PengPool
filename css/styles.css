@@ -248,6 +248,26 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 .umodal-btn{background:var(--g);border:none;border-radius:6px;color:#000;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;letter-spacing:2px;padding:11px;cursor:pointer;transition:opacity .15s}
 .umodal-btn:hover{opacity:.85}
 
+/* ── PRACTICE MODE SELECT ── */
+#pracModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);z-index:700;align-items:center;justify-content:center}
+#pracModal.on{display:flex}
+.prac-box{background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,.2);border-radius:8px;padding:36px 40px;text-align:center;min-width:260px;animation:mi .25s cubic-bezier(.34,1.56,.64,1)}
+.prac-title{font-family:'Exo 2',sans-serif;font-size:13px;font-weight:900;letter-spacing:4px;color:var(--ice);text-transform:uppercase;margin-bottom:20px}
+.prac-opts{display:flex;gap:10px;justify-content:center}
+.prac-btn{font-family:'Exo 2',sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;padding:11px 22px;border-radius:3px;cursor:pointer;border:1px solid rgba(120,200,255,.25);background:rgba(120,200,255,.05);color:var(--t2);transition:all .15s;text-transform:uppercase;clip-path:polygon(4px 0%,100% 0%,calc(100% - 4px) 100%,0% 100%)}
+.prac-btn:hover{border-color:var(--g);color:var(--g);background:rgba(0,201,81,.08)}
+.prac-btn.easy{border-color:rgba(0,201,81,.3);color:var(--g)}
+.prac-btn.easy:hover{background:rgba(0,201,81,.12)}
+.prac-btn.medium{border-color:rgba(255,200,0,.35);color:#ffc840}
+.prac-btn.medium:hover{background:rgba(255,200,0,.08)}
+.prac-btn.hard{border-color:rgba(255,80,80,.35);color:#ff6060}
+.prac-btn.hard:hover{background:rgba(255,80,80,.08)}
+.prac-back{background:none;border:none;color:var(--t3);font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;margin-top:16px;padding:4px 0;text-decoration:underline;text-underline-offset:3px}
+.prac-back:hover{color:var(--t2)}
+.prac-close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--t3);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:3px;transition:color .15s,background .15s}
+.prac-close:hover{color:var(--t1);background:rgba(255,255,255,.07)}
+.prac-box{position:relative}
+
 /* ── LEAVE CONFIRM ── */
 #leaveConfirm{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);z-index:800;align-items:center;justify-content:center}
 #leaveConfirm.on{display:flex}

@@ -412,9 +412,10 @@ function shotEnd(){
           toast('⚠️ FOUL — must hit 8-ball first!',1);
         }
       } else {
-        // Still have own balls — must hit one of them first
+        // Still have own balls — must hit one of them first (8-ball is never valid here)
         const fcSolid=firstContactId>=1&&firstContactId<=7;
-        const fcMine=(myType==='solid'&&fcSolid)||(myType==='stripe'&&!fcSolid);
+        const fcStripe=firstContactId>=9&&firstContactId<=15;
+        const fcMine=(myType==='solid'&&fcSolid)||(myType==='stripe'&&fcStripe);
         if(!fcMine){
           foulThisTurn=true;
           toast('⚠️ FOUL — wrong first contact!',1);
@@ -472,6 +473,8 @@ function shotEnd(){
   if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&running){
     if(typeof window._wsOnResult==='function')window._wsOnResult(_gatherResult());
   }
+  // Trigger bot shot if it's now the bot's turn (covers keep-turn after a pot)
+  if(typeof window._triggerBotIfNeeded==='function')window._triggerBotIfNeeded();
 }
 
 function _gatherResult(){
@@ -524,13 +527,19 @@ function switchTurn(){
   cur=cur===1?2:1;
   document.getElementById('pr1').className='pr'+(cur===1?' on':'');
   document.getElementById('pr2').className='pr'+(cur===2?' on':'');
-  const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
-  document.getElementById('gstatus').textContent='P'+cur+(myTurn?' — YOUR TURN':' — OPPONENT\'S TURN');
+  const _isBot=typeof gameMode!=='undefined'&&gameMode==='bot';
+  const myTurn=_isBot?(cur===myPlayerNum):(typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum);
+  if(_isBot){
+    document.getElementById('gstatus').textContent=cur===1?'YOUR TURN':(typeof window.getBotName==='function'?window.getBotName()+"'S TURN":"BOT'S TURN");
+  }else{
+    document.getElementById('gstatus').textContent='P'+cur+(myTurn?' — YOUR TURN':' — OPPONENT\'S TURN');
+  }
   if(!myTurn){aiming=false;charging=false;}
   if(typeof window.resetSpin==='function')window.resetSpin();
-  // In multiplayer only run the timer on the active player's machine
-  if(typeof gameMode==='undefined'||gameMode!=='multiplayer'||myTurn){resetTurnTimer();}
+  // In multiplayer only run the timer on the active player's machine; in bot mode stop during bot's turn
+  if(typeof gameMode==='undefined'||gameMode!=='multiplayer'&&gameMode!=='bot'||myTurn){resetTurnTimer();}
   else{stopTurnTimer();}
+  if(typeof window._triggerBotIfNeeded==='function')window._triggerBotIfNeeded();
 }
 
 // ── Bonus-shots UI badge ──────────────────────────────────────────────────────
@@ -545,7 +554,8 @@ function _updateBonusUI(){
   }
   // Update gstatus hint when ball-in-hand is active
   if(ballInHand){
-    const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+    const _isBot=typeof gameMode!=='undefined'&&gameMode==='bot';
+    const myTurn=_isBot?(cur===myPlayerNum):(typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum);
     if(myTurn) document.getElementById('gstatus').textContent='MOVE MOUSE TO PLACE CUE — CLICK TO CONFIRM & CHARGE';
   }
 }
@@ -581,7 +591,8 @@ function drawLast8PocketIndicator(){
 const BIH_X = 180; // head-string x — same as the cue ball's initial spawn position
 function drawBallInHandLine(){
   if(!ballInHand)return;
-  const myTurn=typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum;
+  const _isBot=typeof gameMode!=='undefined'&&gameMode==='bot';
+  const myTurn=_isBot?(cur===myPlayerNum):(typeof gameMode==='undefined'||gameMode!=='multiplayer'||cur===myPlayerNum);
   if(!myTurn)return;
   cx.save();
   // Dashed vertical line at BIH_X

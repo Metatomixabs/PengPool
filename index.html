@@ -239,6 +239,29 @@
   </div>
 </div>
 
+<!-- PRACTICE MODE SELECT MODAL -->
+<div id="pracModal">
+  <div class="prac-box">
+    <button class="prac-close" id="pracClose">✕</button>
+    <div id="pracStep1">
+      <div class="prac-title">Practice</div>
+      <div class="prac-opts">
+        <button class="prac-btn" id="pracSolo">Solo</button>
+        <button class="prac-btn" id="pracVsBot">vs Bot</button>
+      </div>
+    </div>
+    <div id="pracStep2" style="display:none">
+      <div class="prac-title">Select Difficulty</div>
+      <div class="prac-opts">
+        <button class="prac-btn easy"   id="pracEasy">Easy</button>
+        <button class="prac-btn medium" id="pracMedium">Medium</button>
+        <button class="prac-btn hard"   id="pracHard">Hard</button>
+      </div>
+      <button class="prac-back" id="pracBack">← back</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL -->
 <div class="mover" id="modal">
   <div class="mbox">
@@ -261,6 +284,7 @@
 <script src="js/audio.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/bot.js"></script>
 
 <!-- USERNAME MODAL -->
 <div id="usernameModal" class="umodal">

@@ -448,6 +448,7 @@ C.addEventListener('mousemove',e=>{
   const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
   if(!moving&&cue&&!cue.out&&running){
     if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
+    if(gameMode==='bot'&&cur!==myPlayerNum)return;
     if(ballInHand){
       // Drag cue ball preview along the vertical head-string (x fixed, y free)
       cue.x=BIH_X;
@@ -467,6 +468,7 @@ C.addEventListener('mousemove',e=>{
 C.addEventListener('mousedown',e=>{
   if(moving||!running||!cue||cue.out||e.button!==0)return;
   if(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum))return;
+  if(gameMode==='bot'&&cur!==myPlayerNum)return;
   if(ballInHand){
     // Confirm placement only — do NOT start charging on this same click.
     // Player must release and click again to charge the shot.
@@ -483,9 +485,9 @@ C.addEventListener('mouseleave',()=>{aiming=false;if(charging){charging=false;if
 // ── BUTTONS ──
 document.getElementById('btnEnter').addEventListener('click',()=>show('lobby'));
 document.getElementById('btnPlay').addEventListener('click',()=>_onWager());
-document.getElementById('btnPractice').addEventListener('click',()=>_onPractice());
+document.getElementById('btnPractice').addEventListener('click',()=>_showPracticeModal());
 document.getElementById('cWager').addEventListener('click',()=>_onWager());
-document.getElementById('cPractice').addEventListener('click',()=>_onPractice());
+document.getElementById('cPractice').addEventListener('click',()=>_showPracticeModal());
 document.getElementById('btnLobby').addEventListener('click',()=>_confirmLeaveLobby(false));
 document.getElementById('btnLobby2').addEventListener('click',()=>_confirmLeaveLobby(true));
 document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');_resetGS();show('lobby');});
@@ -568,12 +570,51 @@ function _confirmLeaveLobby(withMusic) {
   dlg.classList.add('on');
 }
 
+function _showPracticeModal(){
+  document.getElementById('pracStep1').style.display='';
+  document.getElementById('pracStep2').style.display='none';
+  document.getElementById('pracModal').classList.add('on');
+}
+
+function _hidePracticeModal(){
+  document.getElementById('pracModal').classList.remove('on');
+}
+
+document.getElementById('pracClose').addEventListener('click',()=>_hidePracticeModal());
+document.getElementById('pracSolo').addEventListener('click',()=>{_hidePracticeModal();_onPractice();});
+document.getElementById('pracVsBot').addEventListener('click',()=>{
+  document.getElementById('pracStep1').style.display='none';
+  document.getElementById('pracStep2').style.display='';
+});
+document.getElementById('pracBack').addEventListener('click',()=>{
+  document.getElementById('pracStep1').style.display='';
+  document.getElementById('pracStep2').style.display='none';
+});
+['Easy','Medium','Hard'].forEach(function(d){
+  document.getElementById('prac'+d).addEventListener('click',function(){
+    _hidePracticeModal();
+    _onBotPractice(d.toLowerCase());
+  });
+});
+
 function _onPractice(){
   _resetGS();
   show('game');
   const w=window.PengPoolWeb3;
   const p1lbl=document.getElementById('p1label');
   if(p1lbl&&w&&w.isConnected())p1lbl.textContent=getDisplayName(w.getAddress());
+  initState();startMusic();
+}
+
+function _onBotPractice(difficulty){
+  _resetGS();
+  gameMode='bot';
+  myPlayerNum=1;
+  show('game');
+  const w=window.PengPoolWeb3;
+  const p1lbl=document.getElementById('p1label');
+  if(p1lbl&&w&&w.isConnected())p1lbl.textContent=getDisplayName(w.getAddress());
+  if(typeof window.setBotDifficulty==='function')window.setBotDifficulty(difficulty);
   initState();startMusic();
 }
 
