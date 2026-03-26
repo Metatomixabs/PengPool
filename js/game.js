@@ -932,10 +932,27 @@ function loop(ts){
   // Interpolate toward remote targets when watching opponent's shot
   if(_remoteTargets&&typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&!_myLastShot){
     for(let i=0;i<balls.length;i++){
-      const t=_remoteTargets[balls[i].id];
+      const b=balls[i];
+      const t=_remoteTargets[b.id];
       if(!t)continue;
-      if(t.out){balls[i].out=true;}
-      else{balls[i].x+=(t.x-balls[i].x)*_LERP;balls[i].y+=(t.y-balls[i].y)*_LERP;}
+      if(t.out){b.out=true;}
+      else{
+        const dx=(t.x-b.x)*_LERP;
+        const dy=(t.y-b.y)*_LERP;
+        b.x+=dx;b.y+=dy;
+        // Update rotation using the actual movement applied this frame (mirrors phys() logic)
+        if(b.id!==0){
+          const spd=Math.sqrt(dx*dx+dy*dy);
+          if(spd>0.05){
+            b.totalRotation=(b.totalRotation||0)+spd*0.075;
+            const tgt=Math.atan2(dy,dx);
+            let diff=tgt-(b.visualAngle||0);
+            while(diff<-Math.PI)diff+=Math.PI*2;
+            while(diff>Math.PI)diff-=Math.PI*2;
+            b.visualAngle=(b.visualAngle||0)+diff*0.3;
+          }
+        }
+      }
     }
   }
   updateTrails();
