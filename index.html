@@ -43,6 +43,7 @@
       <div class="hbtns">
         <button class="btn-g" id="btnPlay">🎱 PLAY NOW</button>
         <button class="btn-o" id="btnPractice">PRACTICE FREE</button>
+        <button class="btn-o" id="btnLeaderboard">🏆 LEADERBOARD</button>
         <button class="btn-o" id="btnRulesLobby">RULES</button>
       </div>
     </div>
@@ -189,6 +190,15 @@
   <div id="stProtocol"></div><div id="stWinner"></div><div id="shotsv"></div>
 </div>
 
+<!-- LEADERBOARD MODAL -->
+<div class="mover" id="lbModal">
+  <div class="mbox lb-box">
+    <button class="rules-close" id="btnLbClose">&#x2715;</button>
+    <div class="rules-title">🏆 LEADERBOARD</div>
+    <div id="lbContent"><div class="level-loading">Loading…</div></div>
+  </div>
+</div>
+
 <!-- LEVEL PANEL MODAL -->
 <div class="mover" id="levelModal">
   <div class="mbox level-box">
@@ -300,6 +310,7 @@
 <!-- USERNAME MODAL -->
 <div id="usernameModal" class="umodal">
   <div class="umodal-box">
+    <button id="usernameClose" class="umodal-close" title="Cancel">&times;</button>
     <div class="umodal-title">CHOOSE YOUR ALIAS</div>
     <div class="umodal-sub">How will other players see you?</div>
     <input class="umodal-input" id="usernameInput" type="text" maxlength="20" placeholder="Your name or alias…" autocomplete="off" spellcheck="false">

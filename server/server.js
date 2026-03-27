@@ -126,6 +126,21 @@ const httpServer = http.createServer(async (req, res) => {
       res.end("OK"); return;
     }
 
+    // ── leaderboard ───────────────────────────────────────────────────────────
+    if (req.method === "GET" && req.url.startsWith("/api/leaderboard")) {
+      const qs   = req.url.includes("?") ? req.url.slice(req.url.indexOf("?") + 1) : "";
+      const wallet = new URLSearchParams(qs).get("wallet") || null;
+      try {
+        const data = await db.getLeaderboard(wallet);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify(data));
+      } catch (e) {
+        console.error("[api] leaderboard:", e.message);
+        _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
     // ── player profile API ────────────────────────────────────────────────────
     if (req.method === "GET" && req.url.startsWith("/api/player/")) {
       const wallet = decodeURIComponent(req.url.slice("/api/player/".length));

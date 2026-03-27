@@ -133,4 +133,87 @@ async function recordGameResult(wallet, won) {
   );
 }
 
-module.exports = { init, getPlayer, registerPlayer, renamePlayer, recordGameResult };
+// Returns top 100 players sorted by wins desc, win_rate desc.
+// If `wallet` is provided and not in top 100, also returns their rank + data as `caller`.
+async function getLeaderboard(wallet) {
+  const TOP_SQL = `
+    SELECT
+      ROW_NUMBER() OVER (
+        ORDER BY games_won DESC,
+                 CASE WHEN games_played = 0 THEN 0
+                      ELSE ROUND(games_won * 100.0 / games_played, 1)
+                 END DESC
+      )::int AS rank,
+      wallet,
+      username,
+      games_won,
+      games_played,
+      CASE WHEN games_played = 0 THEN 0
+           ELSE ROUND(games_won * 100.0 / games_played, 1)
+      END AS win_rate,
+      points
+    FROM players
+    ORDER BY games_won DESC,
+             CASE WHEN games_played = 0 THEN 0
+                  ELSE ROUND(games_won * 100.0 / games_played, 1)
+             END DESC
+    LIMIT 100
+  `;
+  const { rows } = await pool.query(TOP_SQL);
+  const top = rows.map(r => ({
+    rank:         Number(r.rank),
+    wallet:       r.wallet,
+    username:     r.username || null,
+    games_won:    r.games_won,
+    games_played: r.games_played,
+    win_rate:     Number(r.win_rate),
+    points:       r.points,
+    level:        _levelForPoints(r.points),
+  }));
+
+  // If caller wallet provided and not already in top 100, fetch their own rank
+  let caller = null;
+  if (wallet) {
+    const w = wallet.toLowerCase();
+    const inTop = top.find(r => r.wallet === w);
+    if (!inTop) {
+      const RANK_SQL = `
+        SELECT sub.rank, p.username, p.games_won, p.games_played,
+               CASE WHEN p.games_played = 0 THEN 0
+                    ELSE ROUND(p.games_won * 100.0 / p.games_played, 1)
+               END AS win_rate,
+               p.points
+        FROM players p
+        JOIN (
+          SELECT wallet,
+                 ROW_NUMBER() OVER (
+                   ORDER BY games_won DESC,
+                            CASE WHEN games_played = 0 THEN 0
+                                 ELSE ROUND(games_won * 100.0 / games_played, 1)
+                            END DESC
+                 )::int AS rank
+          FROM players
+        ) sub ON sub.wallet = p.wallet
+        WHERE p.wallet = $1
+      `;
+      const { rows: cr } = await pool.query(RANK_SQL, [w]);
+      if (cr.length) {
+        const r = cr[0];
+        caller = {
+          rank:         Number(r.rank),
+          wallet:       w,
+          username:     r.username || null,
+          games_won:    r.games_won,
+          games_played: r.games_played,
+          win_rate:     Number(r.win_rate),
+          points:       r.points,
+          level:        _levelForPoints(r.points),
+        };
+      }
+    }
+  }
+
+  return { top, caller };
+}
+
+module.exports = { init, getPlayer, registerPlayer, renamePlayer, recordGameResult, getLeaderboard };

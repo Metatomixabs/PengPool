@@ -274,14 +274,21 @@ function setStoredUsername(addr, name) { localStorage.setItem(_usernameKey(addr)
 function getDisplayName(addr) { return getStoredUsername(addr) || shortenAddr(addr); }
 
 function _showUsernameModal(addr, onSave) {
-  const modal = document.getElementById('usernameModal');
-  const input = document.getElementById('usernameInput');
-  const btn   = document.getElementById('usernameSubmit');
+  const modal     = document.getElementById('usernameModal');
+  const input     = document.getElementById('usernameInput');
+  const btn       = document.getElementById('usernameSubmit');
+  const closeBtn  = document.getElementById('usernameClose');
   if (!modal || !input || !btn) { if (onSave) onSave(null); return; }
   input.value = getStoredUsername(addr) || '';
   // Clear any leftover error from a previous attempt
   const oldErr = modal.querySelector('.umodal-err');
   if (oldErr) oldErr.remove();
+  // Show X button only when renaming (player already has a username stored)
+  const hasExisting = !!getStoredUsername(addr);
+  if (closeBtn) {
+    closeBtn.classList.toggle('hidden', !hasExisting);
+    closeBtn.onclick = () => { modal.classList.remove('on'); };
+  }
   modal.classList.add('on');
   setTimeout(() => input.focus(), 50);
   const save = async () => {
@@ -536,6 +543,81 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
   document.getElementById('btnRulesClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
+
+// ── LEADERBOARD ──────────────────────────────────────────────────────────────
+(function(){
+  const overlay=document.getElementById('lbModal');
+  const content=document.getElementById('lbContent');
+  const close=()=>overlay.classList.remove('on');
+
+  function _lbRow(r, isMe){
+    const name=r.username||shortenAddr(r.wallet);
+    return `<tr class="lb-row${isMe?' lb-me':''}">
+      <td class="lb-rank">${r.rank}</td>
+      <td class="lb-player">${name}</td>
+      <td class="lb-wins">${r.games_won}</td>
+      <td class="lb-matches">${r.games_played}</td>
+      <td class="lb-wr">${r.win_rate}%</td>
+      <td class="lb-level">Lv.${r.level}</td>
+    </tr>`;
+  }
+
+  async function openLeaderboard(){
+    overlay.classList.add('on');
+    content.innerHTML='<div class="level-loading">Loading…</div>';
+    try{
+      const w=window.PengPoolWeb3;
+      const myAddr=(w&&w.isConnected())?w.getAddress().toLowerCase():null;
+      const url=HTTP_URL+'/api/leaderboard'+(myAddr?'?wallet='+encodeURIComponent(myAddr):'');
+      const res=await fetch(url);
+      const data=await res.json();
+      if(!data||data.error||!Array.isArray(data.top)){
+        content.innerHTML='<div class="level-noconn">Failed to load leaderboard.</div>';
+        return;
+      }
+      const{top,caller}=data;
+      const tbody=top.map(r=>_lbRow(r,r.wallet===myAddr)).join('');
+      content.innerHTML=`
+        <div class="lb-table-wrap">
+          <table class="lb-table">
+            <thead class="lb-thead"><tr>
+              <th class="lb-th">#</th>
+              <th class="lb-th">Player</th>
+              <th class="lb-th lb-th-wins">Wins</th>
+              <th class="lb-th lb-th-r">Matches</th>
+              <th class="lb-th lb-th-r">Win %</th>
+              <th class="lb-th lb-th-r">Level</th>
+            </tr></thead>
+            <tbody>${tbody||'<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--t3)">No players yet</td></tr>'}</tbody>
+          </table>
+        </div>`;
+      // If connected and not in top 100, show caller row at footer
+      if(myAddr&&caller){
+        const name=caller.username||shortenAddr(caller.wallet);
+        content.innerHTML+=`
+          <div class="lb-footer">
+            <div class="lb-footer-row">
+              <span class="lb-footer-rank">#${caller.rank}</span>
+              <span class="lb-footer-name">${name} <span style="color:var(--g);font-size:9px">YOU</span></span>
+              <span class="lb-footer-wins">${caller.games_won}</span>
+              <span class="lb-footer-extra">${caller.games_played} played</span>
+              <span class="lb-footer-extra">${caller.win_rate}%</span>
+              <span class="lb-footer-extra">Lv.${caller.level}</span>
+            </div>
+          </div>`;
+      } else if(myAddr&&!top.find(r=>r.wallet===myAddr)){
+        content.innerHTML+=`<div class="lb-footer"><div class="level-noconn" style="padding:10px 0">Play PvP matches to appear on the leaderboard!</div></div>`;
+      }
+    }catch(e){
+      content.innerHTML='<div class="level-noconn">Failed to load leaderboard.</div>';
+    }
+  }
+
+  document.getElementById('btnLeaderboard').addEventListener('click',openLeaderboard);
+  document.getElementById('btnLbClose').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('on'))close();});
 })();
 
 // ── LEVEL PANEL ──────────────────────────────────────────────────────────────

@@ -240,7 +240,10 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 /* ── USERNAME MODAL ── */
 #usernameModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(8px);z-index:900;align-items:center;justify-content:center}
 #usernameModal.on{display:flex}
-.umodal-box{background:linear-gradient(160deg,#0a1828 0%,#0d2240 100%);border:1px solid rgba(120,200,255,.18);border-radius:10px;padding:32px 36px;display:flex;flex-direction:column;gap:16px;min-width:280px;max-width:340px;animation:mi .25s cubic-bezier(.34,1.56,.64,1)}
+.umodal-box{background:linear-gradient(160deg,#0a1828 0%,#0d2240 100%);border:1px solid rgba(120,200,255,.18);border-radius:10px;padding:32px 36px;display:flex;flex-direction:column;gap:16px;min-width:280px;max-width:340px;animation:mi .25s cubic-bezier(.34,1.56,.64,1);position:relative}
+.umodal-close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--t3);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px;transition:color .15s}
+.umodal-close:hover{color:var(--t1)}
+.umodal-close.hidden{display:none}
 .umodal-title{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--ice);letter-spacing:2px;text-align:center}
 .umodal-sub{font-size:11px;color:var(--t3);text-align:center;margin-top:-6px}
 .umodal-input{background:rgba(255,255,255,.06);border:1px solid rgba(120,200,255,.22);border-radius:6px;color:var(--t1);font-family:'Space Mono',monospace;font-size:12px;padding:10px 14px;outline:none;transition:border-color .15s;width:100%;box-sizing:border-box}
@@ -280,6 +283,31 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 .lc-leave:hover{background:rgba(255,80,80,0.22)}
 .lc-stay{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;padding:9px 24px;border-radius:3px;border:1px solid rgba(0,201,81,0.4);background:rgba(0,201,81,0.1);color:var(--g);cursor:pointer}
 .lc-stay:hover{background:rgba(0,201,81,0.2)}
+
+/* ── LEADERBOARD ─────────────────────────────────────────────────────────── */
+.lb-box{position:relative;background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,0.2);border-radius:3px;padding:28px 32px 32px;max-width:600px;width:96%;text-align:left;box-shadow:0 28px 68px rgba(0,0,0,.8),inset 0 1px 0 rgba(200,232,248,0.08);animation:mi .3s cubic-bezier(.34,1.56,.64,1)}
+.lb-table-wrap{max-height:380px;overflow-y:auto;margin-top:4px;border-radius:4px;scrollbar-width:thin;scrollbar-color:rgba(120,200,255,0.2) transparent}
+.lb-table-wrap::-webkit-scrollbar{width:4px}
+.lb-table-wrap::-webkit-scrollbar-thumb{background:rgba(120,200,255,0.2);border-radius:2px}
+.lb-table{width:100%;border-collapse:collapse;font-family:'Space Mono',monospace;font-size:11px}
+.lb-thead tr{position:sticky;top:0;background:var(--p2);z-index:1}
+.lb-th{padding:8px 10px;color:var(--t3);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;border-bottom:1px solid rgba(120,200,255,0.12);white-space:nowrap;text-align:left}
+.lb-th.lb-th-wins,.lb-th.lb-th-r{text-align:right}
+.lb-row td{padding:9px 10px;border-bottom:1px solid rgba(120,200,255,0.06);color:var(--t2);vertical-align:middle;white-space:nowrap}
+.lb-row:last-child td{border-bottom:none}
+.lb-row:hover td{background:rgba(120,200,255,0.04)}
+.lb-row.lb-me td{background:rgba(0,201,81,0.08);color:#fff}
+.lb-row.lb-me .lb-wins{color:var(--g3)}
+.lb-rank{color:var(--t3);font-size:10px;width:30px}
+.lb-player{color:var(--t1);max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.lb-wins{color:var(--g);font-size:14px;font-weight:700;text-align:right}
+.lb-matches,.lb-wr,.lb-level{text-align:right;color:var(--t2)}
+.lb-footer{margin-top:14px;padding-top:14px;border-top:1px solid rgba(120,200,255,0.1)}
+.lb-footer-row{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(0,201,81,0.08);border:1px solid rgba(0,201,81,0.2);border-radius:4px;font-family:'Space Mono',monospace;font-size:11px}
+.lb-footer-rank{font-size:13px;font-weight:700;color:var(--g);min-width:28px}
+.lb-footer-name{color:#fff;flex:1}
+.lb-footer-wins{font-size:14px;font-weight:700;color:var(--g);min-width:30px;text-align:right}
+.lb-footer-extra{color:var(--t2);font-size:10px;min-width:60px;text-align:right}
 
 /* ── LEVEL PANEL ─────────────────────────────────────────────────────────── */
 .level-box{position:relative;background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,0.2);border-radius:3px;padding:28px 32px 32px;max-width:400px;width:92%;text-align:left;box-shadow:0 28px 68px rgba(0,0,0,.8),inset 0 1px 0 rgba(200,232,248,0.08);animation:mi .3s cubic-bezier(.34,1.56,.64,1)}
