@@ -35,6 +35,13 @@ let _ws = null;
 const WS_URL   = window.location.hostname === 'localhost' ? 'ws://localhost:8080'   : 'wss://pengpool-production.up.railway.app';
 const HTTP_URL = window.location.hostname === 'localhost' ? 'http://localhost:8080' : 'https://pengpool-production.up.railway.app';
 
+const _AG_KEY = 'pengpool_active_game';
+function _saveActiveGame(gameId, playerNum, addr) {
+  localStorage.setItem(_AG_KEY, JSON.stringify({ gameId: String(gameId), playerNum, addr }));
+}
+function _clearActiveGame() { localStorage.removeItem(_AG_KEY); }
+function _loadActiveGame()  { try { return JSON.parse(localStorage.getItem(_AG_KEY)); } catch { return null; } }
+
 function _connectWS(gameId, playerNum, addr) {
   if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
   try {
@@ -48,6 +55,7 @@ function _connectWS(gameId, playerNum, addr) {
     const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '' };
     console.log('[WS] Sending join:', JSON.stringify(joinMsg));
     _ws.send(JSON.stringify(joinMsg));
+    _saveActiveGame(gameId, playerNum, addr);
   };
   _ws.onmessage = (evt) => {
     let msg; try { msg = JSON.parse(evt.data); } catch { return; }
@@ -68,6 +76,30 @@ function _showWaitingOverlay() {
 function _hideWaitingOverlay() {
   const el = document.getElementById('waitingOverlay');
   if (el) el.classList.remove('on');
+}
+
+function _showReconnectOverlay(timeLeft) {
+  console.log('[reconnect] _showReconnectOverlay called, timeLeft=', timeLeft);
+  let el = document.getElementById('reconnectOverlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'reconnectOverlay';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:900;color:#fff;font-family:"Space Mono",monospace;gap:14px';
+    el.innerHTML = '<div style="font-size:15px;letter-spacing:1px">OPPONENT DISCONNECTED</div>'
+      + '<div id="reconnectCountdown" style="font-size:36px;font-weight:700;color:#f0c040"></div>'
+      + '<div style="font-size:11px;color:rgba(255,255,255,.55)">Waiting for reconnection…</div>';
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+  _updateReconnectOverlay(timeLeft);
+}
+function _updateReconnectOverlay(timeLeft) {
+  const cd = document.getElementById('reconnectCountdown');
+  if (cd) cd.textContent = timeLeft + 's';
+}
+function _hideReconnectOverlay() {
+  const el = document.getElementById('reconnectOverlay');
+  if (el) el.style.display = 'none';
 }
 
 function _wsOnMessage(msg) {
@@ -127,7 +159,43 @@ function _wsOnMessage(msg) {
   }
   else if (msg.type === 'gameover') {
     _receivedGameOver = true;
-    endGame(msg.winnerNum, msg.reason);
+    _clearActiveGame();
+    _hideReconnectOverlay();
+    const reason = msg.reason === 'opponent_timeout' ? 'You win — opponent didn\'t reconnect'
+                 : msg.reason === 'opponent_left'    ? 'You win — opponent abandoned the match'
+                 : msg.reason;
+    endGame(msg.winnerNum, reason);
+  }
+  else if (msg.type === 'opponent_disconnected') {
+    console.log('[reconnect] opponent_disconnected received, timeLeft=', msg.timeLeft);
+    _showReconnectOverlay(msg.timeLeft);
+  }
+  else if (msg.type === 'reconnect_countdown') {
+    _updateReconnectOverlay(msg.timeLeft);
+  }
+  else if (msg.type === 'request_state') {
+    // Server is asking us to send current game state to a reconnecting opponent
+    if (G && gameMode === 'multiplayer') {
+      const data = G.gatherResult();
+      _wsSend(Object.assign({ type: 'sync_state', gameId: currentGameId }, data));
+    }
+  }
+  else if (msg.type === 'rejoin_state') {
+    // Restore game state for the player who just rejoined
+    if (msg.gameState && G) {
+      G.applyResult(msg.gameState);
+    }
+    // Allow shooting again
+    _matchReady = true;
+    _hideWaitingOverlay();
+    _hideReconnectOverlay();
+  }
+  else if (msg.type === 'opponent_reconnected') {
+    _hideReconnectOverlay();
+    // If we are the one who reconnected, _matchReady was already set by rejoin_state.
+    // If we are the waiting player, just re-enable play.
+    _matchReady = true;
+    toast('Opponent reconnected!');
   }
   else if (msg.type === 'settled') {
     const sub = document.getElementById('msub');
@@ -715,11 +783,17 @@ document.querySelectorAll('.bet-opt').forEach(b=>b.addEventListener('click',()=>
 // WEB3 / MATCHMAKING LOGIC
 // ════════════════════════════════════════════════
 
-function _resetGS(){
+function _resetGS(alreadySentLeave){
+  // Signal voluntary leave to server before closing socket (skip if already sent)
+  if(!alreadySentLeave && _ws && _ws.readyState===WebSocket.OPEN && gameMode==='multiplayer'){
+    try{_ws.send(JSON.stringify({type:'leave'}));}catch(_){}
+  }
+  _clearActiveGame();
   gameMode='practice';currentGameId=null;currentGameData=null;myPlayerNum=1;
   _matchReady=false;
   clearInterval(_matchCdInterval);_matchCdInterval=null;
   const ov=document.getElementById('matchCountdown');if(ov)ov.classList.remove('on');
+  _hideReconnectOverlay();
   if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
   const p1lbl=document.getElementById('p1label');const p2lbl=document.getElementById('p2label');
   if(p1lbl)p1lbl.textContent='Player 1';if(p2lbl)p2lbl.textContent='Player 2';
@@ -744,6 +818,12 @@ function _confirmLeaveLobby(withMusic) {
   document.getElementById('lcLeave').onclick = () => {
     dlg.classList.remove('on');
     if (withMusic) stopMusic();
+    // Send "leave" first, then wait 200ms before closing WS so the message reaches server
+    if (_ws && _ws.readyState === WebSocket.OPEN && gameMode === 'multiplayer') {
+      try { _ws.send(JSON.stringify({ type: 'leave' })); } catch(_) {}
+      setTimeout(() => { _resetGS(true); show('lobby'); }, 200);
+      return;
+    }
     _resetGS();
     show('lobby');
   };
@@ -818,6 +898,67 @@ function _setWBtn(addr){
   btn.style.background='rgba(0,201,81,.08)';btn.disabled=false;
   const rb=document.getElementById('btnRename');if(rb)rb.style.display='';
   const name=getStoredUsername(addr);if(name)_registerAlias(addr,name);
+  _checkRejoin(addr);
+}
+
+async function _checkRejoin(addr){
+  const saved=_loadActiveGame();
+  if(!saved||!saved.gameId)return;
+  // Only offer rejoin if the saved addr matches the connected wallet
+  if(saved.addr?.toLowerCase()!==addr.toLowerCase())return;
+
+  // Verify the room still exists on the server before showing any UI
+  const _rejoinGameId = String(saved.gameId);
+  console.log('[rejoin] checking game status for gameId:', _rejoinGameId);
+  try{
+    const resp=await fetch(HTTP_URL+'/api/game-status/'+_rejoinGameId);
+    const data=await resp.json();
+    console.log('[rejoin] game-status response:', data);
+    if(!data.active){
+      console.log('[rejoin] game ended, clearing...');
+      _clearActiveGame();
+      const _endDlg=document.createElement('div');
+      _endDlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:960;font-family:"Space Mono",monospace';
+      _endDlg.innerHTML=
+        '<div style="background:#0d1b2a;border:1px solid #00c951;border-radius:8px;padding:36px 32px;text-align:center;max-width:320px;width:90%;color:#fff">'
+        +'<div style="font-size:28px;margin-bottom:12px">⏱️</div>'
+        +'<div style="font-size:13px;letter-spacing:1px;color:#00c951;margin-bottom:12px">MATCH ENDED</div>'
+        +'<div style="font-size:11px;color:rgba(255,255,255,.65);line-height:1.6;margin-bottom:24px">Your previous match has ended<br>while you were disconnected.</div>'
+        +'<button id="_endDlgOk" style="background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:11px;letter-spacing:1px;padding:10px 28px;border-radius:6px;cursor:pointer">OK</button>'
+        +'</div>';
+      document.body.appendChild(_endDlg);
+      document.getElementById('_endDlgOk').onclick=()=>_endDlg.remove();
+      return;
+    }
+    console.log('[rejoin] game still active, showing modal');
+  }catch(e){
+    // If the check fails (server unreachable), fall through and show modal anyway
+    console.warn('[rejoin] game-status check failed:', e.message);
+  }
+
+  const dlg=document.createElement('div');
+  dlg.id='rejoinDlg';
+  dlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:950;font-family:"Space Mono",monospace';
+  dlg.innerHTML=
+    '<div style="background:#0d1b2a;border:1px solid rgba(120,200,255,.2);border-radius:8px;padding:32px;text-align:center;max-width:320px;width:90%;color:#fff">'
+    +'<div style="font-size:13px;letter-spacing:1px;margin-bottom:8px">MATCH IN PROGRESS</div>'
+    +'<div style="font-size:11px;color:rgba(255,255,255,.55);margin-bottom:24px">Game #'+saved.gameId+' — you were P'+saved.playerNum+'</div>'
+    +'<div style="display:flex;gap:12px;justify-content:center">'
+    +'<button id="rejoinYes" style="background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:11px;padding:10px 20px;border-radius:6px;cursor:pointer;letter-spacing:1px">REJOIN</button>'
+    +'<button id="rejoinNo"  style="background:rgba(255,100,100,.1);border:1px solid rgba(255,100,100,.3);color:#ff6b6b;font-family:inherit;font-size:11px;padding:10px 20px;border-radius:6px;cursor:pointer;letter-spacing:1px">ABANDON</button>'
+    +'</div></div>';
+  document.body.appendChild(dlg);
+
+  document.getElementById('rejoinYes').onclick=()=>{
+    dlg.remove();
+    currentGameId=saved.gameId;myPlayerNum=saved.playerNum;gameMode='multiplayer';
+    show('game');_showWaitingOverlay();
+    _connectWS(saved.gameId,saved.playerNum,addr);
+  };
+  document.getElementById('rejoinNo').onclick=()=>{
+    dlg.remove();
+    _clearActiveGame();
+  };
 }
 
 function _openMM(){

@@ -1042,7 +1042,7 @@ function applyFrame(data){
 }
 
 // Public API used by ui.js for WebSocket synchronisation
-window.PengPoolGame={applyRemoteShoot,getBallsState,applyBallsState,applyResult,applyFrame,isMyLastShot:()=>_myLastShot};
+window.PengPoolGame={applyRemoteShoot,getBallsState,applyBallsState,applyResult,applyFrame,isMyLastShot:()=>_myLastShot,gatherResult:_gatherResult};
 
 document.getElementById('pool').addEventListener('mousemove', e => {
   const rect = e.target.getBoundingClientRect();

@@ -179,6 +179,18 @@ const httpServer = http.createServer(async (req, res) => {
       }
       return;
     }
+    // ── game-status  (check if a room is still active) ───────────────────────
+    if (req.method === "GET" && req.url.startsWith("/api/game-status/")) {
+      const rawId  = req.url.slice("/api/game-status/".length);
+      const numId  = Number(rawId);
+      const strId  = String(rawId);
+      console.log('[game-status] checking gameId:', strId, '| rooms has str:', rooms.has(strId), '| rooms has num:', rooms.has(numId), '| all room keys:', [...rooms.keys()]);
+      const active = rooms.has(strId) || rooms.has(numId);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ active }));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/player/game-result") {
       try {
         const { wallet, won } = JSON.parse(await _readBody(req));
@@ -216,10 +228,48 @@ wss.on("connection", (ws) => {
       const gameId = String(msg.gameId);
       const addr   = (msg.addr || "").toLowerCase();
 
+      // ── Reconnection: wallet already belongs to this room ─────────────
+      if (rooms.has(gameId)) {
+        const room = rooms.get(gameId);
+        const pNum = room.p1addr?.toLowerCase() === addr ? 1
+                   : room.p2addr?.toLowerCase() === addr ? 2
+                   : null;
+        if (pNum !== null) {
+          // Cancel pending disconnect timer
+          const timerKey = `p${pNum}timer`;
+          const cdKey    = `p${pNum}cd`;
+          if (room[timerKey]) { clearTimeout(room[timerKey]);  room[timerKey] = null; }
+          if (room[cdKey])    { clearInterval(room[cdKey]);    room[cdKey]    = null; }
+
+          // Restore socket
+          ws._gameId    = gameId;
+          ws._playerNum = pNum;
+          ws._addr      = msg.addr || "";
+          ws._alias     = msg.alias || "";
+          room[`p${pNum}`] = ws;
+          console.log(`[room ${gameId}] P${pNum} reconnected (${addr.slice(0,8)}…)`);
+
+          // Ask the active player to send their current state (source of truth).
+          // Store the reconnecting ws so sync_state handler knows where to forward it.
+          const other = pNum === 1 ? room.p2 : room.p1;
+          if (other && other.readyState === 1 /* OPEN */) {
+            room.pendingRejoinWs = ws;
+            _send(other, { type: "request_state" });
+          } else {
+            // Other player not connected — fall back to cached state
+            _send(ws, { type: "rejoin_state", gameState: room.gameState || null });
+          }
+          // Notify both that the connection is restored
+          _send(ws,    { type: "opponent_reconnected" });
+          _send(other, { type: "opponent_reconnected" });
+          return;
+        }
+      }
+
       // Reject if this wallet is already connected in a different room
       if (addr) {
         for (const [existingId, existingRoom] of rooms) {
-          if (existingId === gameId) continue; // rejoining same game is fine
+          if (existingId === gameId) continue;
           if (existingRoom.p1addr?.toLowerCase() === addr ||
               existingRoom.p2addr?.toLowerCase() === addr) {
             console.warn(`[join] ${addr.slice(0,8)}… already in room ${existingId} — rejecting join to ${gameId}`);
@@ -244,21 +294,38 @@ wss.on("connection", (ws) => {
 
       if (ws._alias) aliases.set(ws._addr.toLowerCase(), ws._alias);
       console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
-      console.log('Player joined, alias:', ws._alias, 'addr:', ws._addr);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);
-      console.log(`[room ${gameId}] raw gameId type=${typeof msg.gameId} value=${JSON.stringify(msg.gameId)}`);
-      console.log(`[room ${gameId}] all rooms: [${[...rooms.keys()].join(', ')}]`);
 
       // If both players present, notify both
       if (room.p1 && room.p2) {
         console.log(`[room ${gameId}] Both players ready — sending ready`);
-        console.log('Sending ready, opponentAlias for P1:', room.p2alias, '| for P2:', room.p1alias);
         const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentAlias: room.p2alias, opponentNum: 2 });
         const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentAlias: room.p1alias, opponentNum: 1 });
         console.log(`[room ${gameId}] ready sent to P1=${r1ok} P2=${r2ok}`);
       } else {
         console.log(`[room ${gameId}] waiting for ${room.p1 ? 'P2' : 'P1'}…`);
       }
+    }
+
+    // ── leave  (voluntary quit — triggers immediate gameover for opponent) ─
+    else if (msg.type === "leave") {
+      ws._leaving = true; // guard so close() handler doesn't double-fire
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const winnerNum = ws._playerNum === 1 ? 2 : 1;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      console.log(`[room ${ws._gameId}] P${ws._playerNum} sent leave — declaring P${winnerNum} winner immediately`);
+      _send(other, { type: "gameover", winnerNum, reason: "opponent_left" });
+      const _leaveWinAddr = winnerNum === 1 ? room.p1addr : room.p2addr;
+      const _leaveLoserAddr = winnerNum === 1 ? room.p2addr : room.p1addr;
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (_leaveWinAddr && _leaveWinAddr !== ZERO)
+        db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
+      if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
+        db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
+      if (_leaveWinAddr && _leaveWinAddr !== ZERO)
+        _settle(ws._gameId, _leaveWinAddr, room);
+      // close() will still fire; _leaving=true prevents double settle (via _settling Set)
     }
 
     // ── state / rack  (P1 → P2: ball layout sync) ────────────────────────
@@ -291,6 +358,19 @@ wss.on("connection", (ws) => {
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, msg);
+      // Snapshot latest game state so a reconnecting player can resume
+      room.gameState = msg;
+    }
+
+    // ── sync_state  (active player's live state, sent in response to request_state) ──
+    else if (msg.type === "sync_state") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      room.gameState = msg; // update snapshot with fresh data
+      if (room.pendingRejoinWs) {
+        _send(room.pendingRejoinWs, { type: "rejoin_state", gameState: msg });
+        room.pendingRejoinWs = null;
+      }
     }
 
     // ── cueUpdate  (active player streams aim angle to opponent) ─────────
@@ -361,18 +441,54 @@ wss.on("connection", (ws) => {
     const room = rooms.get(ws._gameId);
     if (!room) return;
 
-    // Notify opponent
-    const other = ws._playerNum === 1 ? room.p2 : room.p1;
-    _send(other, { type: "disconnect" });
+    const pNum  = ws._playerNum;
+    const other = pNum === 1 ? room.p2 : room.p1;
+    const winnerNum = pNum === 1 ? 2 : 1;
 
-    // Remove this player from room
-    room[`p${ws._playerNum}`] = null;
-
-    // Clean up empty rooms
-    if (!room.p1 && !room.p2) {
-      rooms.delete(ws._gameId);
-      console.log(`[room ${ws._gameId}] closed`);
+    // ── CASE A: voluntary leave ────────────────────────────────────────────
+    if (ws._leaving) {
+      console.log(`[room ${ws._gameId}] P${pNum} left voluntarily`);
+      // gameover + settle already fired in 'leave' handler; _settling Set prevents double-settle
+      const _caWinAddr = winnerNum === 1 ? room.p1addr : room.p2addr;
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (_caWinAddr && _caWinAddr !== ZERO) _settle(ws._gameId, _caWinAddr, room);
+      room[`p${pNum}`] = null;
+      if (!room.p1 && !room.p2) rooms.delete(ws._gameId);
+      return;
     }
+
+    // ── CASE B: involuntary disconnect — start 60s reconnect window ────────
+    console.log(`[room ${ws._gameId}] P${pNum} disconnected — starting 60s window`);
+    room[`p${pNum}`] = null; // clear stale socket; addr is preserved for reconnect check
+
+    const TIMEOUT_SEC = 60;
+    let timeLeft = TIMEOUT_SEC;
+
+    _send(other, { type: "opponent_disconnected", timeLeft });
+
+    // Send countdown every second
+    const cdKey   = `p${pNum}cd`;
+    const timerKey = `p${pNum}timer`;
+
+    room[cdKey] = setInterval(() => {
+      timeLeft--;
+      _send(other, { type: "reconnect_countdown", timeLeft });
+    }, 1000);
+
+    room[timerKey] = setTimeout(() => {
+      clearInterval(room[cdKey]); room[cdKey] = null; room[timerKey] = null;
+      console.log(`[room ${ws._gameId}] P${pNum} timed out — declaring P${winnerNum} winner`);
+      _send(other, { type: "gameover", winnerNum, reason: "opponent_timeout" });
+      const _toWinAddr  = winnerNum === 1 ? room.p1addr : room.p2addr;
+      const _toLoseAddr = winnerNum === 1 ? room.p2addr : room.p1addr;
+      const ZERO = "0x0000000000000000000000000000000000000000";
+      if (_toWinAddr && _toWinAddr !== ZERO)
+        db.recordGameResult(_toWinAddr, true).catch(e => console.error(`[db] timeout winner:`, e.message));
+      if (_toLoseAddr && _toLoseAddr !== ZERO)
+        db.recordGameResult(_toLoseAddr, false).catch(e => console.error(`[db] timeout loser:`, e.message));
+      if (_toWinAddr && _toWinAddr !== ZERO) _settle(ws._gameId, _toWinAddr, room);
+      rooms.delete(ws._gameId);
+    }, TIMEOUT_SEC * 1000);
   });
 
   ws.on("error", (err) => {
