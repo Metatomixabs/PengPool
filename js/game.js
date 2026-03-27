@@ -258,18 +258,18 @@ function phys() {
 
       // Deflexión en bocas de todas las troneras
       const corners=[
-        {cx:W/2+_offT-_mgT, cy:WT},   // central top izq
-        {cx:W/2+_offT+_mgT, cy:WT},   // central top der
-        {cx:W/2+_offB-_mgB, cy:WB},   // central bottom izq
-        {cx:W/2+_offB+_mgB, cy:WB},   // central bottom der
-        {cx:WL+_cgTLh, cy:WT},        // TL horizontal
-        {cx:WL, cy:WT+_cgTLv},        // TL vertical
-        {cx:WR-_cgTRh, cy:WT},        // TR horizontal
-        {cx:WR, cy:WT+_cgTRv},        // TR vertical
-        {cx:WL+_cgBLh, cy:WB},        // BL horizontal
-        {cx:WL, cy:WB-_cgBLv},        // BL vertical
-        {cx:WR-_cgBRh, cy:WB},        // BR horizontal
-        {cx:WR, cy:WB-_cgBRv},        // BR vertical
+        // {cx:W/2+_offT-_mgT, cy:WT},   // central top izq
+        // {cx:W/2+_offT+_mgT, cy:WT},   // central top der
+        // {cx:W/2+_offB-_mgB, cy:WB},   // central bottom izq
+        // {cx:W/2+_offB+_mgB, cy:WB},   // central bottom der
+        // {cx:WL+_cgTLh, cy:WT},        // TL horizontal
+        // {cx:WL, cy:WT+_cgTLv},        // TL vertical
+        // {cx:WR-_cgTRh, cy:WT},        // TR horizontal
+        // {cx:WR, cy:WT+_cgTRv},        // TR vertical
+        // {cx:WL+_cgBLh, cy:WB},        // BL horizontal
+        // {cx:WL, cy:WB-_cgBLv},        // BL vertical
+        // {cx:WR-_cgBRh, cy:WB},        // BR horizontal
+        // {cx:WR, cy:WB-_cgBRv},        // BR vertical
       ];
       for(const c of corners){
         const dx=b.x-c.cx, dy=b.y-c.cy, dist=Math.sqrt(dx*dx+dy*dy);
