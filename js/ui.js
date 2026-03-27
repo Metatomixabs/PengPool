@@ -413,16 +413,8 @@ function show(id) {
 
 
 function renderUI(){
-  const mk=(id,arr)=>{
-    const el=document.getElementById(id);el.innerHTML='';
-    arr.forEach(n=>{
-      const d=document.createElement('div');
-      d.className='mb'+(BD[n].s?' stripe':'');
-      d.style.background=BD[n].c;
-      d.textContent=n;
-      el.appendChild(d);
-    });
-  };
+  const mkCanvas=(id)=>{const cv=document.createElement('canvas');cv.width=24;cv.height=24;cv.style.cssText='display:block;flex-shrink:0';drawBallIcon(id,cv);return cv;};
+  const mk=(id,arr)=>{const el=document.getElementById(id);el.innerHTML='';arr.forEach(n=>el.appendChild(mkCanvas(n)));};
   mk('p1t',p1t);mk('p2t',p2t);
   // Update type labels
   const l1=document.getElementById('p1type-lbl');
@@ -434,13 +426,7 @@ function renderUI(){
   if(pt1)pt1.textContent=p1T?p1T.toUpperCase():'—';
   if(pt2)pt2.textContent=p2T?p2T.toUpperCase():'—';
   const tb=document.getElementById('tbt');tb.innerHTML='';
-  balls.filter(b=>b.id!==0&&!b.out).forEach(b=>{
-    const d=document.createElement('div');
-    d.className='mb'+(BD[b.id].s?' stripe':'');
-    d.style.background=BD[b.id].c;
-    d.textContent=b.id;
-    tb.appendChild(d);
-  });
+  balls.filter(b=>b.id!==0&&!b.out).forEach(b=>tb.appendChild(mkCanvas(b.id)));
 }
 
 let toastT;

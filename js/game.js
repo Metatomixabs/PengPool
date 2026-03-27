@@ -231,14 +231,6 @@ function phys() {
     if(b.vx*b.vx+b.vy*b.vy>MINS*MINS){
       mv=true;
       const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
-      // Continuous spin: side spin (english) curves the cue ball
-      if(b.id===0&&b.spinX&&!b.spun){
-        if(spd>0.5){
-          const perpX=-b.vy/spd, perpY=b.vx/spd;
-          const spinForce=b.spinX*0.018*spd;
-          b.vx+=perpX*spinForce; b.vy+=perpY*spinForce;
-        }
-      }
       b.x+=b.vx;b.y+=b.vy;b.vx*=FRIC;b.vy*=FRIC;
       if(b.id!==0){b.totalRotation=b.totalRotation+spd*0.075;}
       if(b.vx*b.vx+b.vy*b.vy<MINS*MINS){b.vx=0;b.vy=0;}
@@ -378,6 +370,19 @@ function pocketed(b, pi){
   } else if(!isBreakShot){
     foulThisTurn=true;
     toast('⚠️ FOUL — wrong ball!',1);
+    // Add the ball to the panel of whichever player owns that group
+    if(typed){
+      const other=cur===1?2:1;
+      const otherGroup=other===1?(p1T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15])
+                                 :(p2T==='solid'?[1,2,3,4,5,6,7]:[9,10,11,12,13,14,15]);
+      if(otherGroup.includes(b.id)){
+        (other===1?p1t:p2t).push(b.id);
+        // Also check if this was the opponent's last ball → set their 8-ball pocket target
+        if(balls.filter(x=>!x.out&&otherGroup.includes(x.id)).length===0){
+          if(other===1)p1EightPocket=pi;else p2EightPocket=pi;
+        }
+      }
+    }
   }
   renderUI();
 }
@@ -662,6 +667,52 @@ function dk(h,a){let r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=p
 
 function drawFelt(){
   // mesa visual via imagen
+}
+
+// Draws a single ball (by id) onto an arbitrary canvas element.
+// Used by renderUI() to populate the pocketed-ball panels.
+// Uses frame-0 of the preloaded sprite when available; falls back to manual drawing.
+function drawBallIcon(id, canvasEl){
+  const size=canvasEl.width;
+  const ctx=canvasEl.getContext('2d');
+  const r=size/2-1;
+  ctx.clearRect(0,0,size,size);
+  ctx.save();
+  ctx.translate(size/2,size/2);
+  // Shadow
+  ctx.beginPath();ctx.arc(1,2,r,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.35)';ctx.fill();
+  const bd=BD[id];
+  const sprite=ballSprites[id];
+  // Clipped circle
+  ctx.save();
+  ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.clip();
+  if(sprite){
+    const fw=sprite.width/SPRITE_COLS,fh=sprite.height/SPRITE_ROWS;
+    ctx.fillStyle=bd.s?'#ffffff':bd.c;
+    ctx.fillRect(-r,-r,r*2,r*2);
+    ctx.drawImage(sprite,0,0,fw,fh,-r,-r,r*2,r*2);
+  }else{
+    if(bd.s){
+      const g=ctx.createRadialGradient(-2,-2,1,0,0,r);g.addColorStop(0,'#fff');g.addColorStop(1,'#e0e0e0');
+      ctx.fillStyle=g;ctx.fillRect(-r,-r,r*2,r*2);
+      ctx.fillStyle=bd.c;ctx.fillRect(-r,-r*.42,r*2,r*.84);
+    }else{
+      const g=ctx.createRadialGradient(-3,-3,1,0,0,r);
+      g.addColorStop(0,lx(bd.c,50));g.addColorStop(.5,bd.c);g.addColorStop(1,dk(bd.c,40));
+      ctx.fillStyle=g;ctx.fillRect(-r,-r,r*2,r*2);
+    }
+    // Number (fallback only — sprite already includes it)
+    ctx.fillStyle=bd.s?bd.c:'rgba(255,255,255,.9)';
+    ctx.font=`bold ${Math.round(r*0.85)}px "Space Mono",monospace`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(String(id),0,1);
+  }
+  ctx.restore(); // remove clip
+  // Specular highlight
+  ctx.beginPath();ctx.arc(-r*.25,-r*.25,r*.27,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,.3)';ctx.fill();
+  // Border
+  ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.strokeStyle='rgba(0,0,0,.3)';ctx.lineWidth=1;ctx.stroke();
+  ctx.restore();
 }
 
 function drawBall(b){
