@@ -214,6 +214,22 @@ wss.on("connection", (ws) => {
     // ── join ──────────────────────────────────────────────────────────────
     if (msg.type === "join") {
       const gameId = String(msg.gameId);
+      const addr   = (msg.addr || "").toLowerCase();
+
+      // Reject if this wallet is already connected in a different room
+      if (addr) {
+        for (const [existingId, existingRoom] of rooms) {
+          if (existingId === gameId) continue; // rejoining same game is fine
+          if (existingRoom.p1addr?.toLowerCase() === addr ||
+              existingRoom.p2addr?.toLowerCase() === addr) {
+            console.warn(`[join] ${addr.slice(0,8)}… already in room ${existingId} — rejecting join to ${gameId}`);
+            _send(ws, { type: "error", code: "ALREADY_IN_GAME", existingGameId: existingId });
+            ws.close();
+            return;
+          }
+        }
+      }
+
       ws._gameId    = gameId;
       ws._playerNum = msg.playerNum; // 1 or 2
       ws._addr      = msg.addr || "";

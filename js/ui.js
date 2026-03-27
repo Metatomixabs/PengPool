@@ -144,6 +144,13 @@ function _wsOnMessage(msg) {
   else if (msg.type === 'disconnect') {
     toast('Opponent disconnected!', 1);
   }
+  else if (msg.type === 'error') {
+    if (msg.code === 'ALREADY_IN_GAME') {
+      toast('Ya tenés una partida abierta en otra pestaña', 1);
+      // Return to matchmaking so the player sees their existing game
+      if (typeof show === 'function') { stopMusic(); _resetGS(); show('matchmaking'); _mmStart(); }
+    }
+  }
 }
 
 // Pre-match countdown overlay shown to both players when server sends 'ready'
@@ -469,7 +476,7 @@ function endGame(winner,reason){
   }
 }
 
-C.addEventListener('mousemove',e=>{
+function _cueMouseMove(e){
   const r=C.getBoundingClientRect();
   const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
   if(!moving&&cue&&!cue.out&&running){
@@ -490,7 +497,15 @@ C.addEventListener('mousemove',e=>{
       }
     }
   }
-});
+}
+function _cueMouseUp(){
+  document.removeEventListener('mousemove',_cueMouseMove);
+  document.removeEventListener('mouseup',_cueMouseUp);
+  if(!charging)return;
+  charging=false;
+  if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}
+  pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';
+}
 C.addEventListener('mousedown',e=>{
   if(moving||!running||!cue||cue.out||e.button!==0)return;
   if(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum))return;
@@ -504,9 +519,11 @@ C.addEventListener('mousedown',e=>{
     return;
   }
   charging=true;cs=Date.now();pwr=0;_pwrDir=1;
+  document.addEventListener('mousemove',_cueMouseMove);
+  document.addEventListener('mouseup',_cueMouseUp);
 });
-C.addEventListener('mouseup',()=>{if(!charging)return;charging=false;if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}pwr=0;document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';});
-C.addEventListener('mouseleave',()=>{aiming=false;if(charging){charging=false;if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}pwr=0;}});
+C.addEventListener('mousemove',_cueMouseMove);
+C.addEventListener('mouseleave',()=>{aiming=false;});
 
 // ── BUTTONS ──
 document.getElementById('btnEnter').addEventListener('click',()=>show('lobby'));
@@ -516,7 +533,7 @@ document.getElementById('cWager').addEventListener('click',()=>_onWager());
 document.getElementById('cPractice').addEventListener('click',()=>_showPracticeModal());
 document.getElementById('btnLobby').addEventListener('click',()=>_confirmLeaveLobby(false));
 document.getElementById('btnLobby2').addEventListener('click',()=>_confirmLeaveLobby(true));
-document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');_resetGS();show('lobby');});
+document.getElementById('btnMlobby').addEventListener('click',()=>{document.getElementById('modal').classList.remove('on');stopMusic();_resetGS();show('lobby');});
 document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guideOn;document.getElementById('guidetxt').textContent=guideOn?'ON':'OFF';});
 
 // ── Rules modal ──────────────────────────────────────────────────────────────
@@ -870,8 +887,10 @@ async function _loadGames(){
 
     const banner=document.getElementById('myGameBanner');
     const lbl=document.getElementById('myGameLabel');
-    if(myG){lbl.textContent='GAME #'+myG.id+' \xb7 $'+myG.betUSD+' USD';banner.classList.remove('hidden');myGameId=myG.id;}
-    else banner.classList.add('hidden');
+    const createBtn=document.getElementById('btnCreateGame');
+    if(myG){lbl.textContent='GAME #'+myG.id+' \xb7 $'+myG.betUSD+' USD';banner.classList.remove('hidden');myGameId=myG.id;if(createBtn){createBtn.disabled=true;createBtn.title='Ya tenés una partida abierta';}}
+    else{banner.classList.add('hidden');if(createBtn){createBtn.disabled=false;createBtn.title='';}}
+
 
   }catch(e){list.innerHTML='<div class="mm-empty">Error: '+e.message.replace('[PengPool] ','')+'</div>';}
 }

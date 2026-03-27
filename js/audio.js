@@ -9,7 +9,7 @@ const _TRACKS = [
 let _trackIdx  = 0;
 let _audio     = null;
 let _musicOn   = false;
-let _volume    = 0.5;
+let _volume    = parseFloat(localStorage.getItem('pengpool_volume') ?? '0.2');
 
 function _initAudio() {
   if (_audio) return;
@@ -21,10 +21,15 @@ function _initAudio() {
     _audio.src = _TRACKS[_trackIdx];
     _audio.play().catch(() => {});
   });
+  // Sync slider with persisted volume
+  const slider = document.getElementById('volSlider');
+  if (slider) slider.value = _volume;
 }
 
 function startMusic() {
   if (_musicOn) return;
+  // Respect user's explicit off preference — don't auto-start if they had it off
+  if (localStorage.getItem('pengpool_muted') === 'true') return;
   _initAudio();
   _audio.src = _TRACKS[_trackIdx];
   _audio.volume = _volume;
@@ -40,11 +45,18 @@ function stopMusic() {
 }
 
 function toggleMusic() {
-  if (_musicOn) stopMusic(); else startMusic();
+  if (_musicOn) {
+    stopMusic();
+    localStorage.setItem('pengpool_muted', 'true');
+  } else {
+    localStorage.setItem('pengpool_muted', 'false');
+    startMusic();
+  }
 }
 
 function setMusicVolume(v) {
   _volume = Math.max(0, Math.min(1, Number(v)));
+  localStorage.setItem('pengpool_volume', _volume);
   if (_audio) _audio.volume = _volume;
 }
 
