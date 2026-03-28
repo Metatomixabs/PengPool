@@ -857,7 +857,7 @@ function drawCue(){
 
   const pos = cueScreenPos();
   const cx2 = pos.x, cy2 = pos.y;
-  const pull = (26 + pwr/100*12) * pos.sx;
+  const pull = (26 + pwr/100*60) * pos.sx;
   const ballR = R * pos.sx;
 
   if(guideOn){
@@ -1065,13 +1065,6 @@ function loop(ts){
   for(const b of balls)drawBall(b);
   drawCue(); // draws on overlay canvas
   updateParticles();
-  if(charging){
-    pwr += _pwrDir * frameDelta / 19.5;
-    if(pwr >= 100){ pwr = 100; _pwrDir = -1; }
-    else if(pwr <= 0){ pwr = 0; _pwrDir = 1; }
-    document.getElementById('pwf').style.width=pwr+'%';
-    document.getElementById('pwpct').textContent=Math.round(pwr)+'%';
-  }
   requestAnimationFrame(loop);
 }
 

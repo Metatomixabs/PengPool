@@ -15,6 +15,8 @@ let _matchCdInterval = null;
 let _oppCueAngle = 0;          // opponent's current aim angle (radians)
 let _oppCueActive = false;     // true while opponent is aiming
 let _lastCueUpdateWs = 0;      // throttle timestamp for cueUpdate sends
+let _dragOrigin = null;        // mouse position at mousedown (drag-to-shoot)
+let _lockedAngle = 0;          // angle frozen at mousedown
 
 // ═══════════════════════════
 // AUDIO CONTEXT UNLOCK
@@ -555,6 +557,17 @@ function _cueMouseMove(e){
       cue.x=BIH_X;
       cue.y=Math.max(WT+R,Math.min(WB-R,my));
       aiming=false;
+    } else if(charging&&_dragOrigin){
+      // Drag mode: angle frozen, distance from origin controls power
+      const dx=mx-_dragOrigin.x, dy=my-_dragOrigin.y;
+      const dirX=Math.cos(_lockedAngle), dirY=Math.sin(_lockedAngle);
+      const dist=-(dx*dirX+dy*dirY); // negative = pulling back (away from ball)
+      pwr=Math.max(0,Math.min(100,dist/250*100));
+      angle=_lockedAngle;
+      document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
+      document.getElementById('pwf').style.width=pwr+'%';
+      document.getElementById('pwpct').textContent=Math.round(pwr)+'%';
+      aiming=true;
     } else {
       angle=Math.atan2(my-cue.y,mx-cue.x);
       document.getElementById('angdisp').textContent=Math.round((angle*180/Math.PI+360)%360)+'°';
@@ -586,7 +599,10 @@ C.addEventListener('mousedown',e=>{
     document.getElementById('gstatus').textContent='HOLD TO CHARGE — RELEASE TO SHOOT';
     return;
   }
-  charging=true;cs=Date.now();pwr=0;_pwrDir=1;
+  const _r=C.getBoundingClientRect();
+  _dragOrigin={x:(e.clientX-_r.left)*(W/_r.width),y:(e.clientY-_r.top)*(H/_r.height)};
+  _lockedAngle=angle;
+  charging=true;pwr=0;
   document.addEventListener('mousemove',_cueMouseMove);
   document.addEventListener('mouseup',_cueMouseUp);
 });
