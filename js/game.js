@@ -226,6 +226,41 @@ function initState() {
   if(typeof window._wsOnInit==='function')window._wsOnInit();
 }
 
+function resolveCollisions(){
+  for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
+    const a=balls[i],b=balls[j];if(a.out||b.out)continue;
+    const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy),mn=R*2;
+    if(d<mn&&d>.001){
+      if(firstContactId===null&&(a.id===0||b.id===0))firstContactId=a.id===0?b.id:a.id;
+      const nx=dx/d,ny=dy/d,ov=(mn-d)/2;
+      a.x-=nx*ov;a.y-=ny*ov;b.x+=nx*ov;b.y+=ny*ov;
+      const dv=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
+      if(dv>0){
+        const impulse=Math.max(dv,ov*0.5); // impulso mínimo proporcional al solapamiento
+        a.vx-=impulse*nx;a.vy-=impulse*ny;b.vx+=impulse*nx;b.vy+=impulse*ny;
+        // Collision sound based on impact speed
+        const impactSpd=Math.abs(dv);
+        if(impactSpd>0.8){const _cs=Math.min(1,impactSpd/MAXP);playCollision(_cs);if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){const _n=Date.now();if(_n-_lastSoundWs>80){_lastSoundWs=_n;_wsSend({type:'sound',gameId:currentGameId,sound:'collision',param:_cs});}}}
+        spawnHitParticles((a.x+b.x)/2,(a.y+b.y)/2);
+      }
+      // Apply spin to cue ball on first collision (topspin/draw affects post-collision direction)
+      const isCue=(a.id===0||b.id===0);
+      const cueBall=(a.id===0)?a:(b.id===0)?b:null;
+      if(cueBall&&!cueBall.spun){
+        const spd=Math.sqrt(cueBall.vx*cueBall.vx+cueBall.vy*cueBall.vy);
+        // Follow (top spin): adds momentum along direction of travel
+        // Draw (back spin): reverses some of the forward momentum
+        cueBall.vx+=Math.cos(angle)*cueBall.spinY*cueBall.shotSpd*0.22;
+        cueBall.vy+=Math.sin(angle)*cueBall.spinY*cueBall.shotSpd*0.22;
+        // English (side spin) applied immediately at collision
+        cueBall.vx+=Math.cos(angle+Math.PI/2)*cueBall.spinX*cueBall.shotSpd*0.16;
+        cueBall.vy+=Math.sin(angle+Math.PI/2)*cueBall.spinX*cueBall.shotSpd*0.16;
+        cueBall.spun=true;
+      }
+    }
+  }
+}
+
 function phys() {
   let mv=false;
   for(const b of balls){
@@ -294,37 +329,9 @@ function phys() {
       }
     }
   }
-  for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
-    const a=balls[i],b=balls[j];if(a.out||b.out)continue;
-    const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy),mn=R*2;
-    if(d<mn&&d>.001){
-      if(firstContactId===null&&(a.id===0||b.id===0))firstContactId=a.id===0?b.id:a.id;
-      const nx=dx/d,ny=dy/d,ov=(mn-d)/2;
-      a.x-=nx*ov;a.y-=ny*ov;b.x+=nx*ov;b.y+=ny*ov;
-      const dv=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
-      if(dv>0){
-        a.vx-=dv*nx;a.vy-=dv*ny;b.vx+=dv*nx;b.vy+=dv*ny;
-        // Collision sound based on impact speed
-        const impactSpd=Math.abs(dv);
-        if(impactSpd>0.8){const _cs=Math.min(1,impactSpd/MAXP);playCollision(_cs);if(typeof gameMode!=='undefined'&&gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){const _n=Date.now();if(_n-_lastSoundWs>80){_lastSoundWs=_n;_wsSend({type:'sound',gameId:currentGameId,sound:'collision',param:_cs});}}}
-        spawnHitParticles((a.x+b.x)/2,(a.y+b.y)/2);
-      }
-      // Apply spin to cue ball on first collision (topspin/draw affects post-collision direction)
-      const isCue=(a.id===0||b.id===0);
-      const cueBall=(a.id===0)?a:(b.id===0)?b:null;
-      if(cueBall&&!cueBall.spun){
-        const spd=Math.sqrt(cueBall.vx*cueBall.vx+cueBall.vy*cueBall.vy);
-        // Follow (top spin): adds momentum along direction of travel
-        // Draw (back spin): reverses some of the forward momentum
-        cueBall.vx+=Math.cos(angle)*cueBall.spinY*cueBall.shotSpd*0.22;
-        cueBall.vy+=Math.sin(angle)*cueBall.spinY*cueBall.shotSpd*0.22;
-        // English (side spin) applied immediately at collision
-        cueBall.vx+=Math.cos(angle+Math.PI/2)*cueBall.spinX*cueBall.shotSpd*0.16;
-        cueBall.vy+=Math.sin(angle+Math.PI/2)*cueBall.spinX*cueBall.shotSpd*0.16;
-        cueBall.spun=true;
-      }
-    }
-  }
+  resolveCollisions();
+  resolveCollisions();
+  resolveCollisions();
   for(const b of balls){
     if(b.out)continue;
     for(let pi=0;pi<PKT.length;pi++){

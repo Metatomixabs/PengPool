@@ -85,7 +85,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 3
 
 /* ── GAME ── */
 .gnav{display:flex;align-items:center;justify-content:space-between;padding:8px 20px;border-bottom:1px solid rgba(120,200,255,0.12);flex-shrink:0;background:rgba(7,16,30,0.95);backdrop-filter:blur(20px);box-shadow:0 2px 20px rgba(0,0,0,0.4)}
-.gnlogo{font-family:'Exo 2',sans-serif;font-size:16px;font-weight:900;font-style:italic;color:var(--g);letter-spacing:1px}
+.gnlogo{font-family:'Exo 2',sans-serif;font-size:16px;font-weight:900;font-style:italic;color:var(--g);letter-spacing:1px;display:flex;align-items:center;gap:6px}
 .gpill{background:rgba(0,201,81,0.08);border:1px solid rgba(0,201,81,0.2);border-radius:3px;padding:6px 18px;font-family:'Space Mono',monospace;font-size:10px;color:var(--g);letter-spacing:.5px;clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%)}
 .gbk{background:transparent;border:1px solid var(--b2);color:var(--t2);font-family:'Space Mono',monospace;font-size:9px;padding:5px 12px;border-radius:6px;cursor:pointer;transition:all .2s;letter-spacing:1px}
 .gbk:hover{border-color:var(--g);color:var(--g)}
