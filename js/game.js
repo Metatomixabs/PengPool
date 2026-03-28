@@ -263,12 +263,43 @@ function resolveCollisions(){
 
 function phys() {
   let mv=false;
+  // CCD para bola blanca
+  if(cue&&!cue.out){
+    const speed=Math.sqrt(cue.vx*cue.vx+cue.vy*cue.vy);
+    if(speed>R){
+      const nx0=cue.vx/speed,ny0=cue.vy/speed;
+      for(const o of balls){
+        if(o===cue||o.out)continue;
+        const bx=o.x-cue.x,by=o.y-cue.y;
+        const tCA=bx*nx0+by*ny0;
+        if(tCA<0||tCA>speed)continue; // fuera del frame actual
+        const perpSq=bx*bx+by*by-tCA*tCA;
+        if(perpSq>(R*2)*(R*2))continue;
+        const tC=tCA-Math.sqrt((R*2)*(R*2)-perpSq);
+        if(tC>0&&tC<=speed){
+          // colisión dentro de este frame — posicionamos exactamente
+          cue.x+=nx0*tC;cue.y+=ny0*tC;
+          const dx=o.x-cue.x,dy=o.y-cue.y;
+          const d=Math.sqrt(dx*dx+dy*dy);
+          const cnx=dx/d,cny=dy/d;
+          const ov=(R*2-d)/2;
+          cue.x-=cnx*ov;o.x+=cnx*ov;
+          cue.y-=cny*ov;o.y+=cny*ov;
+          const dv=(cue.vx-o.vx)*cnx+(cue.vy-o.vy)*cny;
+          if(dv>0){cue.vx-=dv*cnx;cue.vy-=dv*cny;o.vx+=dv*cnx;o.vy+=dv*cny;}
+          cue._ccdDone=true;
+          break;
+        }
+      }
+    }
+  }
   for(const b of balls){
     if(b.out)continue;
     if(b.vx*b.vx+b.vy*b.vy>MINS*MINS){
       mv=true;
       const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
-      b.x+=b.vx;b.y+=b.vy;b.vx*=FRIC;b.vy*=FRIC;
+      if(b===cue&&b._ccdDone){b._ccdDone=false;}else{b.x+=b.vx;b.y+=b.vy;}
+      b.vx*=FRIC;b.vy*=FRIC;
       if(b.id!==0){b.totalRotation=b.totalRotation+spd*0.075;}
       if(b.vx*b.vx+b.vy*b.vy<MINS*MINS){b.vx=0;b.vy=0;}
       // ── BANDAS ──
