@@ -831,10 +831,10 @@ function drawCue(){
     const rectL=cx2-cue.x*pos.sx,rectT=cy2-cue.y*pos.sy;
     const hitSX=rectL+(cue.x+gdx*tHit)*pos.sx,hitSY=rectT+(cue.y+gdy*tHit)*pos.sy;
     ox.save();
-    ox.strokeStyle='rgba(0,201,81,.5)';ox.lineWidth=1;ox.setLineDash([7,9]);
+    ox.strokeStyle='rgba(0,0,0,.5)';ox.lineWidth=1;ox.setLineDash([7,9]);
     ox.beginPath();ox.moveTo(cx2,cy2);ox.lineTo(hitSX,hitSY);ox.stroke();ox.setLineDash([]);
     ox.globalAlpha=.6;ox.beginPath();ox.arc(hitSX,hitSY,ballR,0,Math.PI*2);
-    ox.strokeStyle='#00C951';ox.lineWidth=1.5;ox.stroke();
+    ox.strokeStyle='#000000';ox.lineWidth=1.5;ox.stroke();
     ox.restore();
     // Cue stick image
     if(cueCanvas){
@@ -891,14 +891,14 @@ function drawCue(){
     const hitSY=rectT+(cue.y+gdy*tHit)*pos.sy;
 
     // Draw guide line up to hit point
-    ox.strokeStyle='rgba(0,201,81,.5)';ox.lineWidth=1;ox.setLineDash([7,9]);
+    ox.strokeStyle='rgba(0,0,0,.5)';ox.lineWidth=1;ox.setLineDash([7,9]);
     ox.beginPath();ox.moveTo(cx2,cy2);ox.lineTo(hitSX,hitSY);
     ox.stroke();ox.setLineDash([]);
 
     // Draw impact circle at hit point
     ox.globalAlpha=.6;
     ox.beginPath();ox.arc(hitSX,hitSY,ballR,0,Math.PI*2);
-    ox.strokeStyle='#00C951';ox.lineWidth=1.5;ox.stroke();
+    ox.strokeStyle='#000000';ox.lineWidth=1.5;ox.stroke();
     ox.restore();
   }
 
