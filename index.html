@@ -116,6 +116,7 @@
     <div style="display:flex;align-items:center;gap:8px">
       <button class="gbk" id="btnMusicNav" onclick="toggleMusic()" style="letter-spacing:1px">♪ OFF</button><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.2" oninput="setMusicVolume(this.value)" title="Volume">
       <button class="gbk" id="btn-bg" onclick="toggleBg()" style="letter-spacing:1px">BG</button>
+      <button class="gbk" id="btnTable" style="letter-spacing:1px">TABLE</button>
       <button class="gbk" id="btnLevel" style="letter-spacing:1px">⭐ LEVEL</button>
       <button class="gbk" id="btnRules" style="letter-spacing:1px">RULES</button>
       <button class="gbk" id="btnLobby">← LOBBY</button>
@@ -205,6 +206,24 @@
     <button class="rules-close" id="btnLevelClose">&#x2715;</button>
     <div class="rules-title">⭐ PLAYER PROFILE</div>
     <div id="levelContent"><div class="level-loading">Loading…</div></div>
+  </div>
+</div>
+
+<!-- TABLE SELECTOR MODAL -->
+<div class="mover" id="tableModal">
+  <div class="mbox table-box">
+    <button class="rules-close" id="btnTableClose">&#x2715;</button>
+    <div class="rules-title">🎱 SELECT TABLE</div>
+    <div class="table-grid">
+      <div class="table-thumb" data-table="assets/pooltable/mesa_800x500.png">
+        <img src="assets/pooltable/mesa_800x500.png" alt="Green Table">
+        <div class="table-thumb-label">CLASSIC GREEN</div>
+      </div>
+      <div class="table-thumb" data-table="assets/pooltable/mesa_800x500_blue.png">
+        <img src="assets/pooltable/mesa_800x500_blue.png" alt="Blue Table">
+        <div class="table-thumb-label">BLUE</div>
+      </div>
+    </div>
   </div>
 </div>
 

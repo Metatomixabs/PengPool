@@ -160,6 +160,13 @@ canvas{display:block;border-radius:4px;cursor:crosshair}
 .rules-line strong{color:#ffd700}
 .mbox{background:linear-gradient(160deg,var(--p) 0%,var(--p2) 100%);border:1px solid rgba(120,200,255,0.2);border-radius:3px;padding:38px;max-width:390px;width:90%;text-align:center;box-shadow:0 28px 68px rgba(0,0,0,.8),0 0 0 1px rgba(200,232,248,0.05),inset 0 1px 0 rgba(200,232,248,0.08);animation:mi .3s cubic-bezier(.34,1.56,.64,1)}
 @keyframes mi{from{opacity:0;transform:scale(.88) translateY(22px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.table-box{max-width:480px!important}
+.table-grid{display:flex;gap:16px;justify-content:center;margin-top:4px}
+.table-thumb{cursor:pointer;border:2px solid rgba(120,200,255,0.15);border-radius:6px;padding:5px;transition:border-color .2s,box-shadow .2s}
+.table-thumb:hover{border-color:rgba(120,200,255,0.5)}
+.table-thumb.selected{border-color:var(--g);box-shadow:0 0 14px rgba(0,201,81,0.4)}
+.table-thumb img{width:180px;height:112px;object-fit:cover;display:block;border-radius:3px}
+.table-thumb-label{font-size:9px;color:var(--t2);text-align:center;margin-top:7px;font-family:'Space Mono',monospace;letter-spacing:1px}
 @keyframes frost{0%,100%{opacity:0.5}50%{opacity:1}}
 .frost-line{height:1px;background:linear-gradient(90deg,transparent,rgba(200,232,248,0.3),transparent);animation:frost 3s ease-in-out infinite}
 .mtitle{font-family:'Exo 2',sans-serif;font-size:24px;font-weight:900;font-style:italic;color:var(--g);margin:10px 0 7px;text-shadow:0 0 20px rgba(0,201,81,0.4)}

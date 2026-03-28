@@ -1142,6 +1142,40 @@ async function _cancelMyGame(){
   };
 })();
 
+// ── Table selector ────────────────────────────────────────────────────────────
+(function(){
+  const STORAGE_KEY='pengpool_table';
+  const mesaImg=document.getElementById('mesa-img');
+  const overlay=document.getElementById('tableModal');
+  const open=()=>{updateThumbs();overlay.classList.add('on');};
+  const close=()=>overlay.classList.remove('on');
+
+  function applyTable(src){
+    mesaImg.src=src;
+    localStorage.setItem(STORAGE_KEY,src);
+    updateThumbs();
+  }
+
+  function updateThumbs(){
+    const current=mesaImg.src.split('/').pop();
+    document.querySelectorAll('.table-thumb').forEach(el=>{
+      el.classList.toggle('selected', el.dataset.table.split('/').pop()===current);
+    });
+  }
+
+  // Apply saved table on load
+  const saved=localStorage.getItem(STORAGE_KEY);
+  if(saved) mesaImg.src=saved;
+
+  document.getElementById('btnTable').addEventListener('click',open);
+  document.getElementById('btnTableClose').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
+  document.querySelectorAll('.table-thumb').forEach(el=>{
+    el.addEventListener('click',()=>applyTable(el.dataset.table));
+  });
+  updateThumbs();
+})();
+
 // ── START — init and loop run immediately, game screen just hidden visually ──
 initState();
 loop();
