@@ -556,6 +556,7 @@ function _cueMouseMove(e){
       // Drag cue ball preview along the vertical head-string (x fixed, y free)
       cue.x=BIH_X;
       cue.y=Math.max(WT+R,Math.min(WB-R,my));
+      cue.vx=0;cue.vy=0;
       aiming=false;
     } else if(charging&&_dragOrigin){
       // Drag mode: angle frozen, distance from origin controls power
@@ -594,6 +595,8 @@ C.addEventListener('mousedown',e=>{
   if(ballInHand){
     // Confirm placement only — do NOT start charging on this same click.
     // Player must release and click again to charge the shot.
+    const blocked=balls.some(b=>b!==cue&&!b.out&&Math.sqrt((b.x-cue.x)**2+(b.y-cue.y)**2)<R*2);
+    if(blocked)return; // no confirmar si hay una bola en ese lugar
     ballInHand=false;
     if(typeof _updateBonusUI==='function')_updateBonusUI();
     document.getElementById('gstatus').textContent='HOLD TO CHARGE — RELEASE TO SHOOT';

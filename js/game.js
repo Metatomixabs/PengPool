@@ -229,6 +229,7 @@ function initState() {
 function resolveCollisions(){
   for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
     const a=balls[i],b=balls[j];if(a.out||b.out)continue;
+    if(ballInHand&&(a===cue||b===cue))continue; // ignorar colisiones de blanca en BIH
     const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy),mn=R*2;
     if(d<mn&&d>.001){
       if(firstContactId===null&&(a.id===0||b.id===0))firstContactId=a.id===0?b.id:a.id;
