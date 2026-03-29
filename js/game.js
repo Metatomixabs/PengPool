@@ -860,7 +860,11 @@ function shotEnd() {
         const fcStripe = firstContactId >= 9 && firstContactId <= 15;
         const fcMine =
           (myType === "solid" && fcSolid) || (myType === "stripe" && fcStripe);
-        if (!fcMine) {
+        // If the player cleared their group this very turn, treat contact with
+        // the 8-ball as valid (same rule as _noOwnBallsAtShotStart === true).
+        const myBalls = balls.filter((b) => !b.out && myGroup.includes(b.id));
+        const clearedGroupThisTurn = myBalls.length === 0;
+        if (!fcMine && !(clearedGroupThisTurn && firstContactId === 8)) {
           foulThisTurn = true;
           toast("⚠️ FOUL — wrong first contact!", 1);
         }
