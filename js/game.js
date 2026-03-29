@@ -1660,6 +1660,9 @@ function ballSegmentCollision(b, x1, y1, x2, y2) {
 
 let _lastLoopTime = 0;
 function loop(ts) {
+  if (!window._loopCount) window._loopCount = 0;
+  window._loopCount++;
+  if (window._loopCount % 300 === 0) console.log('[loop] frame', window._loopCount, 'ts:', ts);
   const frameDelta = ts - _lastLoopTime;
   _lastLoopTime = ts;
   cx.clearRect(0, 0, W, H);
@@ -1793,6 +1796,7 @@ function loop(ts) {
   for (const b of balls) drawBall(b);
   drawCue(); // draws on overlay canvas
   updateParticles();
+  window._lastLoopTs = Date.now();
   requestAnimationFrame(loop);
 }
 

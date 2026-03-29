@@ -62,41 +62,56 @@
   </div>
 </div>
 
-<!-- MATCHMAKING -->
-<div id="matchmaking" class="hidden">
-  <nav>
-    <div class="nlogo">
-      <img src="assets/logo/pengpool_mascot.png" width="28" height="28">
-      PENGPOOL
+<!-- ── MATCHMAKING: Bet card selection ──────────────────── -->
+<div id="matchmaking" class="screen hidden">
+  <div class="mm-header">
+    <img src="assets/logo/pengpool_mascot.png" class="mm-mascot" alt="PengPool">
+    <h2 class="mm-title">FIND A MATCH</h2>
+  </div>
+  <div class="mm-bet-cards">
+    <!-- $1 card -->
+    <div class="mm-card">
+      <div class="mm-card-amount">$1</div>
+      <div class="mm-card-label">Entry Wager</div>
+      <div id="mmCount1" class="mm-card-count">— waiting</div>
+      <button class="mm-card-btn" onclick="_enterQueue(1)">PLAY $1</button>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <div class="nbadge">ABSTRACT TESTNET</div>
-      <span id="mmAddr" class="nbadge" style="background:rgba(0,201,81,0.1);border-color:rgba(0,201,81,0.3);color:var(--g)"></span>
-      <button class="btn-o mm-back-btn" id="btnMMBack">← LOBBY</button>
-    </div>
-  </nav>
-  <div class="mm-body">
-    <div id="myGameBanner" class="mm-banner hidden">
-      <span>MY OPEN GAME — <strong id="myGameLabel"></strong> — Waiting for opponent</span>
-      <button class="btn-o" id="btnCancelMyGame" style="padding:5px 14px;font-size:10px;letter-spacing:1px">CANCEL &amp; REFUND</button>
-    </div>
-    <div class="mm-cols">
-      <div class="mm-section">
-        <div class="seclabel">CREATE A GAME</div>
-        <div class="mm-bets">
-          <button class="bet-opt active" data-usd="1">$1</button>
-          <button class="bet-opt" data-usd="2">$2</button>
-          <button class="bet-opt" data-usd="5">$5</button>
-          <button class="bet-opt" data-usd="10">$10</button>
-        </div>
-        <button class="btn-g" id="btnCreateGame" style="width:100%">🎮 CREATE GAME</button>
-      </div>
-      <div class="mm-section">
-        <div class="seclabel">OPEN GAMES<span id="mmCountdownBadge" class="mm-cd">10s</span></div>
-        <div id="openGamesList" class="mm-list">Loading...</div>
-      </div>
+    <!-- $5 card -->
+    <div class="mm-card">
+      <div class="mm-card-amount">$5</div>
+      <div class="mm-card-label">Entry Wager</div>
+      <div id="mmCount5" class="mm-card-count">— waiting</div>
+      <button class="mm-card-btn mm-card-btn--premium" onclick="_enterQueue(5)">PLAY $5</button>
     </div>
   </div>
+  <p class="mm-note">Matched by skill level · Wager paid on-chain</p>
+</div>
+
+<!-- ── SEARCHING: In matchmaking queue ──────────────────── -->
+<div id="mmSearching" class="screen hidden">
+  <div class="mm-search-modal">
+    <div class="mm-search-modal-header">
+      <div class="mm-spinner-small"></div>
+      <span class="mm-search-modal-title">FINDING MATCH…</span>
+    </div>
+    <div class="mm-search-modal-rows">
+      <div class="mm-search-row"><span class="mm-search-label">Wager</span><span id="mmSearchBet" class="mm-search-val">—</span></div>
+      <div class="mm-search-row"><span class="mm-search-label">Level</span><span id="mmMyLevel" class="mm-search-val">—</span></div>
+      <div class="mm-search-row"><span class="mm-search-label">Range</span><span id="mmSearchRange" class="mm-search-val">±5</span></div>
+      <div class="mm-search-row"><span class="mm-search-label">Time</span><span id="mmSearchTime" class="mm-search-val">0s</span></div>
+    </div>
+    <button class="mm-cancel-btn" onclick="_leaveMmQueue()">CANCEL</button>
+  </div>
+</div>
+
+<!-- ── MM WAITING: Match found, waiting for game creation ── -->
+<div id="mmWaiting" class="screen hidden">
+  <div class="mm-header">
+    <img src="assets/logo/pengpool_mascot.png" class="mm-mascot" alt="PengPool">
+    <h2 class="mm-title">MATCH FOUND!</h2>
+  </div>
+  <p class="mm-wait-msg">Setting up the game on-chain…</p>
+  <div class="mm-spinner"></div>
 </div>
 
 <!-- GAME — always rendered, just hidden visually -->

@@ -2148,3 +2148,70 @@ canvas {
   letter-spacing: 1.5px;
   margin-top: 3px;
 }
+
+/* ── Matchmaking UI ─────────────────────────────────────── */
+.mm-header      { display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:36px; }
+.mm-mascot      { width:120px; height:120px; object-fit:contain; }
+.mm-title       { font-family:'Orbitron',sans-serif; font-size:1.8rem; color:var(--g); margin:0; letter-spacing:3px; }
+.mm-bet-cards   { display:flex; gap:28px; justify-content:center; margin-bottom:28px; }
+.mm-card        { background:rgba(0,201,81,.07); border:1px solid rgba(0,201,81,.25); border-radius:16px;
+                  padding:32px 36px; display:flex; flex-direction:column; align-items:center; gap:12px; min-width:180px; }
+.mm-card-amount { font-family:'Orbitron',sans-serif; font-size:3rem; color:var(--g); font-weight:700; }
+.mm-card-label  { font-size:.85rem; color:#aaa; letter-spacing:1px; text-transform:uppercase; }
+.mm-card-count  { font-size:.9rem; color:var(--g); opacity:.8; }
+.mm-card-btn    { margin-top:12px; padding:14px 28px; border-radius:10px; border:1px solid var(--g);
+                  background:rgba(0,201,81,.15); color:var(--g); font-family:'Orbitron',sans-serif;
+                  font-size:.9rem; cursor:pointer; letter-spacing:1px; transition:background .2s; }
+.mm-card-btn:hover          { background:rgba(0,201,81,.3); }
+.mm-card-btn--premium       { border-color:#f0c040; color:#f0c040; background:rgba(240,192,64,.1); }
+.mm-card-btn--premium:hover { background:rgba(240,192,64,.25); }
+.mm-note        { text-align:center; font-size:.85rem; color:#666; margin:0; }
+.mm-search-info { background:rgba(0,0,0,.3); border-radius:10px; padding:16px 24px; display:flex; flex-direction:column; gap:10px; margin-bottom:24px; min-width:220px; }
+.mm-search-row  { display:flex; justify-content:space-between; gap:24px; }
+.mm-search-label { font-size:.75rem; color:#aaa; }
+.mm-search-val   { font-family:'Orbitron',sans-serif; font-size:.8rem; color:var(--g); }
+.mm-spinner { width:40px; height:40px; border:3px solid rgba(0,201,81,.2); border-top-color:var(--g); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 20px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.mm-cancel-btn { padding:10px 32px; border-radius:8px; border:1px solid #e55; background:rgba(229,85,85,.1); color:#e55; font-family:'Orbitron',sans-serif; font-size:.75rem; cursor:pointer; letter-spacing:1px; }
+.mm-cancel-btn:hover { background:rgba(229,85,85,.25); }
+.mm-wait-msg { text-align:center; color:#aaa; font-size:.85rem; margin-bottom:24px; }
+
+/* ── MM Search Modal ─────────────────────────────────────── */
+.mm-search-modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(10,20,15,.97);
+  border: 1px solid rgba(0,201,81,.3);
+  border-radius: 18px;
+  padding: 44px 56px;
+  min-width: 420px;
+  box-shadow: 0 0 50px rgba(0,201,81,.25);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  z-index: 999;
+}
+.mm-search-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.mm-search-modal-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.4rem;
+  color: var(--g);
+  letter-spacing: 3px;
+}
+.mm-spinner-small {
+  width: 36px; height: 36px;
+  border: 4px solid rgba(0,201,81,.2);
+  border-top-color: var(--g);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+.mm-search-modal .mm-search-row   { display:flex; justify-content:space-between; gap:48px; }
+.mm-search-modal .mm-search-label { font-size:1rem; color:#888; }
+.mm-search-modal .mm-search-val   { font-family:'Orbitron',sans-serif; font-size:1.05rem; color:var(--g); }
+.mm-search-modal .mm-cancel-btn   { align-self:center; padding:13px 40px; margin-top:8px; font-size:.95rem; }

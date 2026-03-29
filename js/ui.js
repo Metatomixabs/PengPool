@@ -17,6 +17,14 @@ let _oppCueActive = false;     // true while opponent is aiming
 let _lastCueUpdateWs = 0;      // throttle timestamp for cueUpdate sends
 let _dragOrigin = null;        // mouse position at mousedown (drag-to-shoot)
 let _lockedAngle = 0;          // angle frozen at mousedown
+let _myLevel = 1;
+let _mmWs = null;
+let _mmBetKey = null;
+let _mmSearchInterval = null;
+let _mmElapsed = 0;
+let _mmRange = 5;
+let _mmOpponentAlias = '';
+let _mmOpponentAddr  = '';
 
 // ═══════════════════════════
 // AUDIO CONTEXT UNLOCK
@@ -45,7 +53,8 @@ function _clearActiveGame() { localStorage.removeItem(_AG_KEY); }
 function _loadActiveGame()  { try { return JSON.parse(localStorage.getItem(_AG_KEY)); } catch { return null; } }
 
 function _connectWS(gameId, playerNum, addr) {
-  if (_ws) { try { _ws.close(); } catch(_){} _ws = null; }
+  if (_ws)   { try { _ws.close();   } catch(_){} _ws   = null; }
+  if (_mmWs) { try { _mmWs.close(); } catch(_){} _mmWs = null; }
   try {
     _ws = new WebSocket(WS_URL);
   } catch(e) {
@@ -65,6 +74,195 @@ function _connectWS(gameId, playerNum, addr) {
   };
   _ws.onerror = () => toast('Sync server offline — shots won\'t sync', 1);
   _ws.onclose = () => console.log('[WS] Disconnected');
+}
+
+async function _fetchMyLevel(addr) {
+  try {
+    const res = await fetch(HTTP_URL + '/api/player/' + encodeURIComponent(addr));
+    const p = await res.json();
+    _myLevel = Number(p.level) || 1;
+  } catch(e) {
+    _myLevel = 1;
+  }
+  return _myLevel;
+}
+
+function _connectMmWs() {
+  if (_mmWs && _mmWs.readyState === WebSocket.OPEN) return;
+  if (_mmWs) { try { _mmWs.close(); } catch(_){} }
+  _mmWs = new WebSocket(WS_URL);
+  _mmWs.onmessage = (evt) => {
+    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    _mmOnMessage(msg);
+  };
+  _mmWs.onerror = () => toast('Matchmaking server offline', 1);
+  _mmWs.onclose = () => { _mmWs = null; };
+  return _mmWs;
+}
+
+function _mmSend(obj) {
+  if (_mmWs && _mmWs.readyState === WebSocket.OPEN) {
+    _mmWs.send(JSON.stringify(obj));
+  }
+}
+
+async function _mmOnMessage(msg) {
+  const w = window.PengPoolWeb3;
+  if (msg.type === 'mm_queue_counts') {
+    const el1 = document.getElementById('mmCount1');
+    const el5 = document.getElementById('mmCount5');
+    if (el1) el1.textContent = msg.counts['1'] + ' waiting';
+    if (el5) el5.textContent = msg.counts['5'] + ' waiting';
+  }
+
+  else if (msg.type === 'mm_queue_joined') {
+    _mmElapsed = 0;
+    _mmRange   = 5;
+    // Tick every second for live timer display
+    _mmSearchInterval = setInterval(() => {
+      _mmElapsed++;
+      // Expand range every 15s, max ±15
+      if (_mmElapsed % 15 === 0) {
+        _mmRange = Math.min(15, 5 + Math.floor(_mmElapsed / 15) * 2);
+        const elRange = document.getElementById('mmSearchRange');
+        if (elRange) elRange.textContent = '±' + _mmRange;
+      }
+      const elTime = document.getElementById('mmSearchTime');
+      if (elTime) elTime.textContent = _mmElapsed + 's';
+    }, 1000);
+    show('mmSearching');
+  }
+
+  else if (msg.type === 'mm_you_are_p1') {
+    clearInterval(_mmSearchInterval);
+    _mmOpponentAlias = msg.opponentAlias || '';
+    _mmOpponentAddr  = msg.opponentAddr  || '';
+    opponentAlias    = msg.opponentAlias || '';
+    opponentAddr     = msg.opponentAddr  || '';
+    const w    = window.PengPoolWeb3;
+    const addr = w.getAddress();
+    currentGameId   = String(msg.matchId);
+    currentGameData = { betUSD: Number(_mmBetKey), betAmount: '0' };
+    // Fetch real betAmount from chain after match is created
+    const _w = window.PengPoolWeb3;
+    if (_w && currentGameId) {
+      _w.getMatch(currentGameId).then(m => {
+        if (m && m.betAmount) currentGameData.betAmount = m.betAmount.toString();
+      }).catch(() => {});
+    }
+    myPlayerNum     = 1;
+    gameMode        = 'multiplayer';
+    toast('Match found! Connecting…');
+    show('game');
+    _showWaitingOverlay();
+    _connectWS(currentGameId, 1, addr);
+  }
+
+  else if (msg.type === 'mm_wait_for_p1') {
+    clearInterval(_mmSearchInterval);
+    toast('Match found! Waiting for game…');
+    show('mmWaiting');
+  }
+
+  else if (msg.type === 'mm_join_game') {
+    clearInterval(_mmSearchInterval);
+    _mmOpponentAlias = msg.opponentAlias || '';
+    _mmOpponentAddr  = msg.opponentAddr  || '';
+    opponentAlias    = msg.opponentAlias || '';
+    opponentAddr     = msg.opponentAddr  || '';
+    const w    = window.PengPoolWeb3;
+    const addr = w.getAddress();
+    currentGameId   = String(msg.matchId);
+    currentGameData = { betUSD: Number(_mmBetKey), betAmount: '0' };
+    // Fetch real betAmount from chain after match is created
+    const _w = window.PengPoolWeb3;
+    if (_w && currentGameId) {
+      _w.getMatch(currentGameId).then(m => {
+        if (m && m.betAmount) currentGameData.betAmount = m.betAmount.toString();
+      }).catch(() => {});
+    }
+    myPlayerNum     = 2;
+    gameMode        = 'multiplayer';
+    toast('Match found! Connecting…');
+    show('game');
+    _showWaitingOverlay();
+    _connectWS(currentGameId, 2, addr);
+  }
+
+  else if (msg.type === 'mm_match_cancelled') {
+    clearInterval(_mmSearchInterval);
+    toast('Opponent cancelled — searching again…', 1);
+    if (_mmBetKey) {
+      await _enterQueue(Number(_mmBetKey));
+    } else {
+      show('matchmaking');
+    }
+  }
+
+  else if (msg.type === 'mm_error') {
+    toast('Matchmaking error: ' + msg.reason, 1);
+    _leaveMmQueue();
+  }
+}
+
+async function _enterQueue(betUSD) {
+  const w = window.PengPoolWeb3;
+  const addr = w?.getAddress();
+  if (!addr) { toast('Connect wallet first', 1); return; }
+  await _fetchMyLevel(addr);
+  _mmBetKey = String(betUSD);
+
+  // Populate search screen fields
+  const elLevel = document.getElementById('mmMyLevel');
+  const elBet   = document.getElementById('mmSearchBet');
+  const elRange = document.getElementById('mmSearchRange');
+  const elTime  = document.getElementById('mmSearchTime');
+  if (elLevel) elLevel.textContent = _myLevel;
+  if (elBet)   elBet.textContent   = '$' + _mmBetKey;
+  if (elRange) elRange.textContent = '±5';
+  if (elTime)  elTime.textContent  = '0s';
+
+  // Step 1: deposit on-chain (user gesture — no popup block)
+  try {
+    toast('Depositing wager…');
+    await w.deposit(Number(betUSD));
+  } catch(e) {
+    console.error('[mm] deposit failed:', e);
+    toast('Transaction cancelled: ' + (e?.message || JSON.stringify(e)), 1);
+    return;
+  }
+
+  toast('Finding match…');
+  show('mmSearching');
+
+  // Step 2: connect MM WebSocket and join queue
+  _connectMmWs();
+  const ws = _mmWs;
+  ws.onopen = () => {
+    _mmSend({
+      type:   'mm_join_queue',
+      betUSD: _mmBetKey,
+      level:  _myLevel,
+      addr:   addr,
+      alias:  getStoredUsername(addr) || shortenAddr(addr)
+    });
+  };
+}
+
+async function _leaveMmQueue() {
+  clearInterval(_mmSearchInterval);
+  _mmSend({ type: 'mm_leave_queue' });
+  if (_mmWs) { try { _mmWs.close(); } catch(_){} _mmWs = null; }
+  const w = window.PengPoolWeb3;
+  if (w && w.isConnected()) {
+    try {
+      await w.withdrawDeposit();
+      toast('Deposit withdrawn — ETH refunded');
+    } catch(e) {
+      console.warn('[mm] withdrawDeposit failed:', e.message);
+    }
+  }
+  show('lobby');
 }
 
 function _wsSend(obj) {
@@ -160,6 +358,7 @@ function _wsOnMessage(msg) {
     switchTurn();
   }
   else if (msg.type === 'gameover') {
+    if (document.getElementById('modal')?.classList.contains('on')) return; // already settled
     _receivedGameOver = true;
     _clearActiveGame();
     _hideReconnectOverlay();
@@ -232,9 +431,26 @@ function _wsOnMessage(msg) {
       sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
         '<span style="font-size:11px;color:#ff6b6b">Settlement failed: '+msg.error+'</span>');
     } else {
-      const short = msg.txHash ? msg.txHash.slice(0,14)+'\u2026' : '';
-      sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
-        '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Settled \xb7 '+short+'</span>');
+      // declareWinner confirmed — if I'm the winner, claim winnings
+      const iWon = (msg.winnerNum === myPlayerNum);
+      if (iWon && currentGameId) {
+        sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026', 'Claiming winnings\u2026');
+        const w = window.PengPoolWeb3;
+        w.claimWinnings(currentGameId)
+          .then(tx => {
+            const short = tx ? String(tx).slice(0,14)+'\u2026' : '';
+            sub.innerHTML = sub.innerHTML.replace('Claiming winnings\u2026',
+              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Claimed \xb7 '+short+'</span>');
+          })
+          .catch(e => {
+            sub.innerHTML = sub.innerHTML.replace('Claiming winnings\u2026',
+              '<span style="font-size:11px;color:#ff6b6b">Claim failed: '+e.message+'</span>');
+          });
+      } else {
+        const short = msg.txHash ? msg.txHash.slice(0,14)+'\u2026' : '';
+        sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
+          '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Settled \xb7 '+short+'</span>');
+      }
     }
   }
   else if (msg.type === 'disconnect') {
@@ -506,9 +722,14 @@ function resetTurnTimer() {
 // ═══════════════════════════
 function show(id) {
   if (id !== 'game') stopTurnTimer();
-  ['intro','lobby','game','matchmaking'].forEach(s => {
+  ['intro','lobby','matchmaking','mmSearching','mmWaiting'].forEach(s => {
     const el = document.getElementById(s); if (el) el.classList.add('hidden');
   });
+  // Hide game screen only when navigating away from it
+  if (id !== 'game') {
+    const gameEl = document.getElementById('game');
+    if (gameEl) gameEl.classList.add('hidden');
+  }
   if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; }
   if (id !== 'game') _hideWaitingOverlay();
   const el = document.getElementById(id); if (el) el.classList.remove('hidden');
@@ -553,11 +774,19 @@ function endGame(winner,reason){
   const betUSD=currentGameData?Number(currentGameData.betUSD):0;
   if(betUSD>0){
     const pot=betUSD*2;
-    const fee=(pot*0.05).toFixed(2);
-    const payout=(pot*0.95).toFixed(2);
+    const fee=(pot*0.10).toFixed(2);
+    const payout=(pot*0.90).toFixed(2);
     document.getElementById('pPot').textContent=pot.toFixed(2)+' USD';
     document.getElementById('pFee').textContent=fee+' USD';
-    document.getElementById('pWinner').textContent=payout+' USD';
+    const betAmt=currentGameData?.betAmount;
+    if(betAmt&&betAmt!=='0'){
+      const potWei=BigInt(betAmt)*2n;
+      const payoutWei=potWei*90n/100n;
+      const payoutEth=(Number(payoutWei)/1e18).toFixed(6);
+      document.getElementById('pWinner').textContent=payoutEth+' ETH ($'+payout+')';
+    }else{
+      document.getElementById('pWinner').textContent=payout+' USD';
+    }
   }else{
     document.getElementById('pPot').textContent='Practice';
     document.getElementById('pFee').textContent='—';
@@ -816,13 +1045,6 @@ document.getElementById('btnRename').addEventListener('click',()=>{
 });
 
 // ── MATCHMAKING PANEL ──
-document.getElementById('btnMMBack').addEventListener('click',()=>show('lobby'));
-document.getElementById('btnCreateGame').addEventListener('click',_createGame);
-document.getElementById('btnCancelMyGame').addEventListener('click',_cancelMyGame);
-document.querySelectorAll('.bet-opt').forEach(b=>b.addEventListener('click',()=>{
-  selectedBetUSD=Number(b.dataset.usd);
-  document.querySelectorAll('.bet-opt').forEach(x=>x.classList.toggle('active',x===b));
-}));
 
 // ════════════════════════════════════════════════
 // WEB3 / MATCHMAKING LOGIC
@@ -1224,3 +1446,18 @@ async function _cancelMyGame(){
 // ── START — init and loop run immediately, game screen just hidden visually ──
 initState();
 loop();
+
+// Emergency: withdraw stuck deposit (callable from browser console)
+window._debugWithdrawDeposit = async function() {
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { console.error('Wallet not connected'); return; }
+  try {
+    const dep = await w.getDeposit(w.getAddress());
+    console.log('Current deposit:', dep);
+    if (!dep || dep.amount === 0n) { console.log('No deposit to withdraw'); return; }
+    const tx = await w.withdrawDeposit();
+    console.log('withdrawDeposit tx:', tx);
+  } catch(e) {
+    console.error('withdrawDeposit failed:', e);
+  }
+};

@@ -24,9 +24,11 @@ const PORT = process.env.PORT || 8080;
 
 // ── On-chain settlement ───────────────────────────────────────────────────────
 
-const PENGPOOL_ADDRESS = "0xEeA18855Ffd6824dB84e17e27E616771dFAbfC1F";
+const PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455";
 const DECLARE_ABI = [
-  "function declareWinner(uint256 gameId, address winner) external",
+  "function declareWinner(uint256 matchId, address winner) external",
+  "function matchPlayers(address addr1, address addr2, uint8 betUSD) external returns (uint256 matchId)",
+  "event MatchCreated(uint256 indexed matchId, address indexed player1, address indexed player2, uint256 betAmount, uint8 betUSD)",
 ];
 
 let _contract = null;
@@ -61,9 +63,9 @@ async function _settle(gameId, winnerAddress, room) {
   try {
     const tx = await contract.declareWinner(BigInt(gameId), winnerAddress);
     console.log(`[settle] tx sent: ${tx.hash}`);
-    _broadcastRoom(room, { type: "settled", txHash: tx.hash, gameId });
     await tx.wait();
     console.log(`[settle] game ${gameId} confirmed`);
+    _broadcastRoom(room, { type: "settled", txHash: tx.hash, gameId, winnerNum: room.winnerNum });
   } catch (err) {
     const msg = err.shortMessage || err.message || String(err);
     console.error(`[settle] game ${gameId} failed:`, msg);
@@ -77,11 +79,106 @@ function _broadcastRoom(room, obj) {
   _send(room.p2, obj);
 }
 
+async function _matchOnChain(addr1, addr2, betUSD) {
+  try {
+    if (!_contract) _getContract();
+    console.log(`[mm] matchPlayers on-chain: ${addr1} vs ${addr2} ($${betUSD})`);
+    const tx      = await _contract.matchPlayers(addr1, addr2, Number(betUSD));
+    const receipt = await tx.wait();
+    // Parse MatchCreated event to get matchId
+    const iface   = new ethers.Interface(DECLARE_ABI);
+    let matchId   = null;
+    for (const log of receipt.logs) {
+      try {
+        const parsed = iface.parseLog(log);
+        if (parsed && parsed.name === 'MatchCreated') {
+          matchId = parsed.args.matchId.toString();
+          break;
+        }
+      } catch(_) {}
+    }
+    console.log(`[mm] matchPlayers confirmed — matchId: ${matchId} tx: ${tx.hash}`);
+    return matchId;
+  } catch(e) {
+    console.error('[mm] matchPlayers failed:', e.message);
+    throw e;
+  }
+}
+
 // rooms: Map<gameId:string, { p1, p2, p1addr, p2addr, p1alias, p2alias }>
 const rooms = new Map();
 
 // Global alias registry: addr.toLowerCase() → alias
 const aliases = new Map();
+
+// ── Matchmaking queues ─────────────────────────────────────────────────
+// Map<addr, { ws, addr, alias, level, betUSD, joinedAt, range }>
+const mmQueues = { '1': new Map(), '5': new Map() };
+
+// Broadcast queue counts to all players in queue
+function _broadcastQueueCounts() {
+  const counts = { '1': mmQueues['1'].size, '5': mmQueues['5'].size };
+  for (const q of Object.values(mmQueues)) {
+    for (const entry of q.values()) {
+      _send(entry.ws, { type: 'mm_queue_counts', counts });
+    }
+  }
+}
+
+// Try to match two players in a queue
+async function _tryMatch(betKey) {
+  const queue = mmQueues[betKey];
+  if (queue.size < 2) return;
+  const entries = Array.from(queue.values());
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const a = entries[i], b = entries[j];
+      const range = Math.min(a.range, b.range);
+      if (Math.abs(a.level - b.level) <= range) {
+        // Found a match — remove both from queue
+        queue.delete(a.addr);
+        queue.delete(b.addr);
+        // Randomly assign P1/P2
+        const [p1, p2] = Math.random() < 0.5 ? [a, b] : [b, a];
+        // Call matchPlayers on-chain and wait for confirmation
+        let matchId = null;
+        try {
+          matchId = await _matchOnChain(p1.addr, p2.addr, betKey);
+        } catch(err) {
+          console.error('[mm] on-chain match failed — re-queuing players:', err.message);
+          _send(p1.ws, { type: 'mm_error', reason: 'match_failed' });
+          _send(p2.ws, { type: 'mm_error', reason: 'match_failed' });
+          // Re-add to queue
+          mmQueues[betKey].set(p1.addr, { ...p1, range: p1.range });
+          mmQueues[betKey].set(p2.addr, { ...p2, range: p2.range });
+          _broadcastQueueCounts();
+          return;
+        }
+        // On-chain confirmed — notify players
+        console.log(`[mm] Match confirmed on-chain matchId=${matchId} ($${betKey}): ${p1.alias} vs ${p2.alias}`);
+        _send(p1.ws, { type: 'mm_you_are_p1', betUSD: betKey, opponentAlias: p2.alias, opponentAddr: p2.addr, matchId });
+        _send(p2.ws, { type: 'mm_join_game',  betUSD: betKey, opponentAlias: p1.alias, opponentAddr: p1.addr, matchId });
+        p1.ws._mmMatchId = matchId;
+        p2.ws._mmMatchId = matchId;
+        // Store pending match so P1 can report gameId
+        p1.ws._mmPendingP2 = p2;
+        p2.ws._mmWaitingForGameId = true;
+        _broadcastQueueCounts();
+        return;
+      }
+    }
+  }
+}
+
+// Expand ranges every 15s and try matching
+setInterval(() => {
+  for (const [betKey, queue] of Object.entries(mmQueues)) {
+    for (const entry of queue.values()) {
+      if (entry.range < 15) entry.range = Math.min(15, entry.range + 2);
+    }
+    _tryMatch(betKey);
+  }
+}, 15000);
 
 const CORS = { "Access-Control-Allow-Origin": "*" };
 
@@ -223,6 +320,57 @@ wss.on("connection", (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
+    // ── Matchmaking: join queue ────────────────────────────────────────────
+    if (msg.type === 'mm_join_queue') {
+      // Identify the WS connection if not already done
+      if (!ws._addr && msg.addr) {
+        ws._addr  = msg.addr.toLowerCase();
+        ws._alias = msg.alias || ws._addr;
+        aliases.set(ws._addr, ws._alias);
+      }
+      if (!ws._addr) { _send(ws, { type: 'mm_error', reason: 'not_identified' }); return; }
+      const betKey = String(msg.betUSD) === '5' ? '5' : '1';
+      const queue  = mmQueues[betKey];
+      // Remove from other queue if present
+      for (const [bk, q] of Object.entries(mmQueues)) {
+        if (bk !== betKey) q.delete(ws._addr);
+      }
+      queue.set(ws._addr, {
+        ws, addr: ws._addr, alias: ws._alias || ws._addr,
+        level: Number(msg.level) || 1,
+        betUSD: betKey, joinedAt: Date.now(), range: 5
+      });
+      console.log(`[mm] ${ws._alias} joined $${betKey} queue (level ${msg.level}) — queue size: ${queue.size}`);
+      _send(ws, { type: 'mm_queue_joined', betUSD: betKey });
+      _broadcastQueueCounts();
+      _tryMatch(betKey);
+      return;
+    }
+
+    // ── Matchmaking: leave queue ───────────────────────────────────────────
+    if (msg.type === 'mm_leave_queue') {
+      for (const q of Object.values(mmQueues)) q.delete(ws._addr);
+      // If this player was matched and P2 is waiting, notify P2
+      if (ws._mmPendingP2) {
+        _send(ws._mmPendingP2.ws, { type: 'mm_match_cancelled', reason: 'opponent_left' });
+        ws._mmPendingP2 = null;
+      }
+      _send(ws, { type: 'mm_queue_left' });
+      _broadcastQueueCounts();
+      return;
+    }
+
+    // ── Matchmaking: P1 reports gameId after creating on-chain ────────────
+    if (msg.type === 'mm_game_created') {
+      const p2 = ws._mmPendingP2;
+      if (!p2) return;
+      ws._mmPendingP2 = null;
+      const gameId = String(msg.gameId);
+      console.log(`[mm] P1 created game ${gameId} — notifying P2`);
+      _send(p2.ws, { type: 'mm_join_game', gameId, opponentAlias: ws._alias, opponentAddr: ws._addr });
+      return;
+    }
+
     // ── join ──────────────────────────────────────────────────────────────
     if (msg.type === "join") {
       const gameId = String(msg.gameId);
@@ -299,6 +447,7 @@ wss.on("connection", (ws) => {
       room[`p${msg.playerNum}addr`]  = ws._addr;
       room[`p${msg.playerNum}alias`] = ws._alias;
 
+      if (ws._mmMatchId) room.matchId = ws._mmMatchId;
       if (ws._alias) aliases.set(ws._addr.toLowerCase(), ws._alias);
       console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);
@@ -330,8 +479,10 @@ wss.on("connection", (ws) => {
         db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
       if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
         db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
-      if (_leaveWinAddr && _leaveWinAddr !== ZERO)
+      if (_leaveWinAddr && _leaveWinAddr !== ZERO) {
+        room.winnerNum = winnerNum;
         _settle(ws._gameId, _leaveWinAddr, room);
+      }
       // close() will still fire; _leaving=true prevents double settle (via _settling Set)
     }
 
@@ -445,12 +596,15 @@ wss.on("connection", (ws) => {
         console.warn(`[settle] game ${ws._gameId}: no address for winner P${msg.winnerNum}`);
         return;
       }
+      room.winnerNum = msg.winnerNum;
       _settle(ws._gameId, winnerAddr, room);
     }
 
   });
 
   ws.on("close", () => {
+    // Remove from matchmaking queue if present
+    for (const q of Object.values(mmQueues)) q.delete(ws._addr);
     if (!ws._gameId) return;
     const room = rooms.get(ws._gameId);
     if (!room) return;
@@ -500,7 +654,7 @@ wss.on("connection", (ws) => {
         db.recordGameResult(_toWinAddr, true).catch(e => console.error(`[db] timeout winner:`, e.message));
       if (_toLoseAddr && _toLoseAddr !== ZERO)
         db.recordGameResult(_toLoseAddr, false).catch(e => console.error(`[db] timeout loser:`, e.message));
-      if (_toWinAddr && _toWinAddr !== ZERO) _settle(ws._gameId, _toWinAddr, room);
+      if (_toWinAddr && _toWinAddr !== ZERO) { room.winnerNum = winnerNum; _settle(ws._gameId, _toWinAddr, room); }
       rooms.delete(ws._gameId);
     }, TIMEOUT_SEC * 1000);
   });

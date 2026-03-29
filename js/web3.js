@@ -19,42 +19,104 @@
 
   // ── Contrato ──────────────────────────────────────────────────────────────
 
-  var PENGPOOL_ADDRESS = "0xEeA18855Ffd6824dB84e17e27E616771dFAbfC1F";
+  var PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455";
 
   var PENGPOOL_ABI = [
-    { name:"betAmountWei",  type:"function", stateMutability:"view",
-      inputs:[{name:"usdAmount",type:"uint8"}], outputs:[{name:"",type:"uint256"}] },
-    { name:"getOpenGames",  type:"function", stateMutability:"view",
-      inputs:[], outputs:[{name:"",type:"uint256[]"}] },
-    { name:"getGame",       type:"function", stateMutability:"view",
-      inputs:[{name:"gameId",type:"uint256"}],
-      outputs:[{name:"",type:"tuple",components:[
-        {name:"player1",  type:"address"},
-        {name:"player2",  type:"address"},
-        {name:"betAmount",type:"uint256"},
-        {name:"betUSD",   type:"uint8"},
-        {name:"status",   type:"uint8"},
-        {name:"winner",   type:"address"},
-      ]}] },
-    { name:"createGame",    type:"function", stateMutability:"payable",
-      inputs:[{name:"betUSD",type:"uint8"}], outputs:[{name:"gameId",type:"uint256"}] },
-    { name:"joinGame",      type:"function", stateMutability:"payable",
-      inputs:[{name:"gameId",type:"uint256"}], outputs:[] },
-    { name:"declareWinner", type:"function", stateMutability:"nonpayable",
-      inputs:[{name:"gameId",type:"uint256"},{name:"winner",type:"address"}], outputs:[] },
-    { name:"cancelGame",    type:"function", stateMutability:"nonpayable",
-      inputs:[{name:"gameId",type:"uint256"}], outputs:[] },
-    { name:"GameCreated",   type:"event",
-      inputs:[{name:"gameId",type:"uint256",indexed:true},{name:"player1",type:"address",indexed:true},
-              {name:"betAmount",type:"uint256",indexed:false},{name:"betUSD",type:"uint8",indexed:false}] },
-    { name:"PlayerJoined",  type:"event",
-      inputs:[{name:"gameId",type:"uint256",indexed:true},{name:"player2",type:"address",indexed:true}] },
-    { name:"WinnerDeclared",type:"event",
-      inputs:[{name:"gameId",type:"uint256",indexed:true},{name:"winner",type:"address",indexed:true},
-              {name:"prize",type:"uint256",indexed:false},{name:"commission",type:"uint256",indexed:false}] },
-    { name:"GameCancelled", type:"event",
-      inputs:[{name:"gameId",type:"uint256",indexed:true},{name:"player1",type:"address",indexed:true},
-              {name:"refund",type:"uint256",indexed:false}] },
+    // deposit(betUSD) — player deposits bet to enter queue
+    { name: "deposit", type: "function", stateMutability: "payable",
+      inputs: [{ name: "betUSD", type: "uint8" }], outputs: [] },
+
+    // withdrawDeposit() — player cancels queue entry and recovers deposit
+    { name: "withdrawDeposit", type: "function", stateMutability: "nonpayable",
+      inputs: [], outputs: [] },
+
+    // claimWinnings(matchId) — winner claims prize after declareWinner
+    { name: "claimWinnings", type: "function", stateMutability: "nonpayable",
+      inputs: [{ name: "matchId", type: "uint256" }], outputs: [] },
+
+    // matchPlayers(addr1, addr2, betUSD) — server only
+    { name: "matchPlayers", type: "function", stateMutability: "nonpayable",
+      inputs: [
+        { name: "addr1",  type: "address" },
+        { name: "addr2",  type: "address" },
+        { name: "betUSD", type: "uint8"   }
+      ],
+      outputs: [{ name: "matchId", type: "uint256" }] },
+
+    // declareWinner(matchId, winner) — server only
+    { name: "declareWinner", type: "function", stateMutability: "nonpayable",
+      inputs: [
+        { name: "matchId", type: "uint256" },
+        { name: "winner",  type: "address" }
+      ], outputs: [] },
+
+    // getMatch(matchId) — view
+    { name: "getMatch", type: "function", stateMutability: "view",
+      inputs: [{ name: "matchId", type: "uint256" }],
+      outputs: [{
+        name: "", type: "tuple",
+        components: [
+          { name: "player1",    type: "address" },
+          { name: "player2",    type: "address" },
+          { name: "betAmount",  type: "uint256" },
+          { name: "betUSD",     type: "uint8"   },
+          { name: "status",     type: "uint8"   },
+          { name: "winner",     type: "address" },
+          { name: "declaredAt", type: "uint256" }
+        ]
+      }]
+    },
+
+    // getDeposit(player) — view
+    { name: "getDeposit", type: "function", stateMutability: "view",
+      inputs: [{ name: "player", type: "address" }],
+      outputs: [{
+        name: "", type: "tuple",
+        components: [
+          { name: "amount",  type: "uint256" },
+          { name: "betUSD",  type: "uint8"   },
+          { name: "matched", type: "bool"    }
+        ]
+      }]
+    },
+
+    // betAmountWei(usdAmount) — view
+    { name: "betAmountWei", type: "function", stateMutability: "view",
+      inputs: [{ name: "usdAmount", type: "uint8" }],
+      outputs: [{ name: "", type: "uint256" }] },
+
+    // Events
+    { name: "Deposited",        type: "event",
+      inputs: [
+        { name: "player",  type: "address", indexed: true },
+        { name: "amount",  type: "uint256", indexed: false },
+        { name: "betUSD",  type: "uint8",   indexed: false }
+      ]},
+    { name: "DepositWithdrawn", type: "event",
+      inputs: [
+        { name: "player", type: "address", indexed: true },
+        { name: "amount", type: "uint256", indexed: false }
+      ]},
+    { name: "MatchCreated",     type: "event",
+      inputs: [
+        { name: "matchId",    type: "uint256", indexed: true },
+        { name: "player1",    type: "address", indexed: true },
+        { name: "player2",    type: "address", indexed: true },
+        { name: "betAmount",  type: "uint256", indexed: false },
+        { name: "betUSD",     type: "uint8",   indexed: false }
+      ]},
+    { name: "WinnerDeclared",   type: "event",
+      inputs: [
+        { name: "matchId", type: "uint256", indexed: true },
+        { name: "winner",  type: "address", indexed: true }
+      ]},
+    { name: "WinningsClaimed",  type: "event",
+      inputs: [
+        { name: "matchId",    type: "uint256", indexed: true },
+        { name: "winner",     type: "address", indexed: true },
+        { name: "prize",      type: "uint256", indexed: false },
+        { name: "commission", type: "uint256", indexed: false }
+      ]}
   ];
 
   var GameStatus = Object.freeze({ OPEN:0, ACTIVE:1, FINISHED:2, CANCELLED:3 });
@@ -224,26 +286,9 @@
 
   // ── Lecturas ──────────────────────────────────────────────────────────────
 
-  function getOpenGames() {
-    return _ensurePub().then(function (pub) {
-      return pub.readContract({
-        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "getOpenGames",
-      });
-    }).catch(function (err) { _fail("getOpenGames", err); });
-  }
-
-  function getGame(gameId) {
-    return _ensurePub().then(function (pub) {
-      return pub.readContract({
-        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "getGame",
-        args: [BigInt(gameId)],
-      });
-    }).catch(function (err) { _fail("getGame", err); });
-  }
-
   function betAmountWei(usdAmount) {
-    if (![1,2,5,10].includes(usdAmount))
-      return Promise.reject(new Error("[PengPool] betAmountWei: usdAmount must be 1, 2, 5, or 10."));
+    if (![1,5].includes(usdAmount))
+      return Promise.reject(new Error("[PengPool] betAmountWei: usdAmount must be 1 or 5."));
     return _ensurePub().then(function (pub) {
       return pub.readContract({
         address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "betAmountWei",
@@ -258,68 +303,17 @@
     if (!_abs) throw new Error("[PengPool] Wallet no conectada. Llama connectWallet() primero.");
   }
 
-  function createGame(betUSD) {
-    try { _requireAbs(); } catch(e) { return Promise.reject(e); }
-    if (![1,2,5,10].includes(betUSD))
-      return Promise.reject(new Error("[PengPool] createGame: betUSD debe ser 1, 2, 5 o 10."));
-
-    return betAmountWei(betUSD).then(function (value) {
-      return _abs.writeContract({
-        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "createGame",
-        args: [betUSD], value: value,
-      });
-    }).then(function (tx) {
-      console.log("[PengPool] createGame tx:", tx); return tx;
-    }).catch(function (err) { _fail("createGame", err); });
-  }
-
-  function joinGame(gameId) {
-    try { _requireAbs(); } catch(e) { return Promise.reject(e); }
-
-    return getGame(gameId).then(function (game) {
-      if (Number(game.status) !== GameStatus.OPEN)
-        throw new Error("La partida " + gameId + " no está abierta.");
-      if (game.player1.toLowerCase() === _agw.toLowerCase())
-        throw new Error("No puedes unirte a tu propia partida.");
-
-      return _abs.writeContract({
-        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "joinGame",
-        args: [BigInt(gameId)], value: game.betAmount,
-      });
-    }).then(function (tx) {
-      console.log("[PengPool] joinGame tx:", tx); return tx;
-    }).catch(function (err) { _fail("joinGame", err); });
-  }
-
-  function declareWinner(gameId, winner) {
+  function declareWinner(matchId, winner) {
     try { _requireAbs(); } catch(e) { return Promise.reject(e); }
     if (!winner || !/^0x[0-9a-fA-F]{40}$/.test(winner))
       return Promise.reject(new Error("[PengPool] declareWinner: dirección inválida."));
 
     return _abs.writeContract({
       address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "declareWinner",
-      args: [BigInt(gameId), winner],
+      args: [BigInt(matchId), winner],
     }).then(function (tx) {
-      console.log("[PengPool] declareWinner tx:", tx); return tx;
+      console.log("[PengPoolV2] declareWinner tx:", tx); return tx;
     }).catch(function (err) { _fail("declareWinner", err); });
-  }
-
-  function cancelGame(gameId) {
-    try { _requireAbs(); } catch(e) { return Promise.reject(e); }
-
-    return getGame(gameId).then(function (game) {
-      if (Number(game.status) !== GameStatus.OPEN)
-        throw new Error("La partida " + gameId + " no está abierta.");
-      if (game.player1.toLowerCase() !== _agw.toLowerCase())
-        throw new Error("Solo el creador puede cancelar esta partida.");
-
-      return _abs.writeContract({
-        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI, functionName: "cancelGame",
-        args: [BigInt(gameId)],
-      });
-    }).then(function (tx) {
-      console.log("[PengPool] cancelGame tx:", tx); return tx;
-    }).catch(function (err) { _fail("cancelGame", err); });
   }
 
   // ── formatEther helper (sin viem) ─────────────────────────────────────────
@@ -334,13 +328,57 @@
 
   window.PengPoolWeb3 = Object.freeze({
     connectWallet:  connectWallet,
-    getOpenGames:   getOpenGames,
-    getGame:        getGame,
     betAmountWei:   betAmountWei,
-    createGame:     createGame,
-    joinGame:       joinGame,
     declareWinner:  declareWinner,
-    cancelGame:     cancelGame,
+    // deposit(betUSD) — enter matchmaking queue
+    deposit: function(betUSD) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      if (![1,5].includes(betUSD)) return Promise.reject(new Error("betUSD must be 1 or 5"));
+      return betAmountWei(betUSD).then(function(value) {
+        return _abs.writeContract({
+          address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI,
+          functionName: "deposit",
+          args: [betUSD], value: value,
+        });
+      }).then(tx => { console.log("[PengPoolV2] deposit tx:", tx); return tx; })
+        .catch(err => { _fail("deposit", err); });
+    },
+    // withdrawDeposit() — cancel queue entry
+    withdrawDeposit: function() {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      return _abs.writeContract({
+        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI,
+        functionName: "withdrawDeposit", args: [],
+      }).then(tx => { console.log("[PengPoolV2] withdrawDeposit tx:", tx); return tx; })
+        .catch(err => { _fail("withdrawDeposit", err); });
+    },
+    // claimWinnings(matchId) — winner claims prize
+    claimWinnings: function(matchId) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      return _abs.writeContract({
+        address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI,
+        functionName: "claimWinnings", args: [BigInt(matchId)],
+      }).then(tx => { console.log("[PengPoolV2] claimWinnings tx:", tx); return tx; })
+        .catch(err => { _fail("claimWinnings", err); });
+    },
+    // getMatch(matchId) — view
+    getMatch: function(matchId) {
+      return _ensurePub().then(function(pub) {
+        return pub.readContract({
+          address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI,
+          functionName: "getMatch", args: [BigInt(matchId)],
+        });
+      }).catch(err => { _fail("getMatch", err); });
+    },
+    // getDeposit(player) — view
+    getDeposit: function(player) {
+      return _ensurePub().then(function(pub) {
+        return pub.readContract({
+          address: PENGPOOL_ADDRESS, abi: PENGPOOL_ABI,
+          functionName: "getDeposit", args: [player],
+        });
+      }).catch(err => { _fail("getDeposit", err); });
+    },
     getAddress:     function () { return _agw; },
     getEOA:         function () { return _eoa; },
     isConnected:    function () { return _abs !== null; },
