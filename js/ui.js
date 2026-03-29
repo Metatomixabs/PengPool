@@ -187,6 +187,32 @@ function _wsOnMessage(msg) {
     if (msg.gameState && G) {
       G.applyResult(msg.gameState);
     }
+
+    // Restore player labels from server-provided aliases
+    if (msg.p1addr || msg.p1alias) {
+      const p1lbl = document.getElementById('p1label');
+      const p2lbl = document.getElementById('p2label');
+      const _w = window.PengPoolWeb3;
+      const myAddr = _w?.getAddress()?.toLowerCase() || '';
+      const isP1   = myAddr === (msg.p1addr || '').toLowerCase();
+      const myName  = _w ? getDisplayName(_w.getAddress()) : (myPlayerNum === 1 ? 'Player 1' : 'Player 2');
+      const oppName = isP1
+        ? (msg.p2alias || shortenAddr(msg.p2addr || ''))
+        : (msg.p1alias || shortenAddr(msg.p1addr || ''));
+      if (p1lbl) p1lbl.textContent = isP1 ? myName : oppName;
+      if (p2lbl) p2lbl.textContent = isP1 ? oppName : myName;
+    }
+
+    // Restore currentGameData from chain if missing
+    if (!currentGameData && currentGameId) {
+      const _w = window.PengPoolWeb3;
+      if (_w) {
+        _w.getGame(currentGameId)
+          .then(data => { currentGameData = data; })
+          .catch(e => console.warn('[rejoin] getGame failed:', e));
+      }
+    }
+
     // Allow shooting again
     _matchReady = true;
     _hideWaitingOverlay();
