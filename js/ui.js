@@ -187,33 +187,6 @@ function _wsOnMessage(msg) {
     if (msg.gameState && G) {
       G.applyResult(msg.gameState);
     }
-
-    // Restore player labels from server-provided aliases
-    if (msg.p1alias || msg.p1addr) {
-      const p1lbl = document.getElementById('p1label');
-      const p2lbl = document.getElementById('p2label');
-      const w = window.PengPoolWeb3;
-      const myAddr = w ? w.getAddress().toLowerCase() : '';
-      const p1addr = (msg.p1addr || '').toLowerCase();
-      const isP1   = myAddr === p1addr;
-      const myName  = w ? getDisplayName(w.getAddress()) : (myPlayerNum === 1 ? 'Player 1' : 'Player 2');
-      const oppAlias = isP1
-        ? (msg.p2alias || shortenAddr(msg.p2addr || ''))
-        : (msg.p1alias || shortenAddr(msg.p1addr || ''));
-      if (p1lbl) p1lbl.textContent = isP1 ? myName : oppAlias;
-      if (p2lbl) p2lbl.textContent = isP1 ? oppAlias : myName;
-    }
-
-    // Restore currentGameData from chain if missing
-    if (!currentGameData && currentGameId) {
-      const _w = window.PengPoolWeb3;
-      if (_w) {
-        _w.getGame(currentGameId)
-          .then(data => { currentGameData = data; })
-          .catch(e => console.warn('[rejoin] could not fetch game data from chain:', e));
-      }
-    }
-
     // Allow shooting again
     _matchReady = true;
     _hideWaitingOverlay();
