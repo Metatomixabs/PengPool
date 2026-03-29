@@ -257,7 +257,15 @@ wss.on("connection", (ws) => {
             _send(other, { type: "request_state" });
           } else {
             // Other player not connected — fall back to cached state
-            _send(ws, { type: "rejoin_state", gameState: room.gameState || null });
+            _send(ws, {
+              type:      "rejoin_state",
+              gameState: room.gameState || null,
+              p1alias:   room.p1alias || null,
+              p2alias:   room.p2alias || null,
+              p1addr:    room.p1addr  || null,
+              p2addr:    room.p2addr  || null,
+              gameId:    ws._gameId   || null
+            });
           }
           // Notify both that the connection is restored
           _send(ws,    { type: "opponent_reconnected" });
@@ -368,7 +376,15 @@ wss.on("connection", (ws) => {
       if (!room) return;
       room.gameState = msg; // update snapshot with fresh data
       if (room.pendingRejoinWs) {
-        _send(room.pendingRejoinWs, { type: "rejoin_state", gameState: msg });
+        _send(room.pendingRejoinWs, {
+          type:      "rejoin_state",
+          gameState: msg,
+          p1alias:   room.p1alias || null,
+          p2alias:   room.p2alias || null,
+          p1addr:    room.p1addr  || null,
+          p2addr:    room.p2addr  || null,
+          gameId:    room.pendingRejoinWs._gameId || null
+        });
         room.pendingRejoinWs = null;
       }
     }
