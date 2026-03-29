@@ -431,21 +431,36 @@ function _wsOnMessage(msg) {
       sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
         '<span style="font-size:11px;color:#ff6b6b">Settlement failed: '+msg.error+'</span>');
     } else {
-      // declareWinner confirmed — if I'm the winner, claim winnings
       const iWon = (msg.winnerNum === myPlayerNum);
       if (iWon && currentGameId) {
-        sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026', 'Claiming winnings\u2026');
-        const w = window.PengPoolWeb3;
-        w.claimWinnings(currentGameId)
-          .then(tx => {
-            const short = tx ? String(tx).slice(0,14)+'\u2026' : '';
-            sub.innerHTML = sub.innerHTML.replace('Claiming winnings\u2026',
-              '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Claimed \xb7 '+short+'</span>');
-          })
-          .catch(e => {
-            sub.innerHTML = sub.innerHTML.replace('Claiming winnings\u2026',
-              '<span style="font-size:11px;color:#ff6b6b">Claim failed: '+e.message+'</span>');
-          });
+        // Show claim button — let the winner trigger the wallet popup manually
+        sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026', 'You won! Claim your reward below.');
+        const btnClaim  = document.getElementById('btnClaim');
+        const btnMlobby = document.getElementById('btnMlobby');
+        btnClaim.disabled = false;
+        btnClaim.textContent = 'CLAIM REWARD';
+        btnClaim.style.display = 'block';
+        btnMlobby.disabled = true;
+        btnMlobby.classList.add('btn-disabled');
+        btnClaim.onclick = function() {
+          btnClaim.disabled  = true;
+          btnMlobby.disabled = true;
+          btnClaim.textContent = 'Claiming\u2026';
+          const w = window.PengPoolWeb3;
+          w.claimWinnings(currentGameId)
+            .then(tx => {
+              const short = tx ? String(tx).slice(0,14)+'\u2026' : '';
+              sub.innerHTML = '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Claimed \xb7 '+short+'</span>';
+              btnClaim.style.display = 'none';
+              btnMlobby.disabled = false;
+              btnMlobby.classList.remove('btn-disabled');
+            })
+            .catch(e => {
+              sub.innerHTML = '<span style="font-size:11px;color:#ff6b6b">Claim failed \u2014 try again.</span>';
+              btnClaim.disabled = false;
+              btnClaim.textContent = 'CLAIM REWARD';
+            });
+        };
       } else {
         const short = msg.txHash ? msg.txHash.slice(0,14)+'\u2026' : '';
         sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026',
@@ -795,6 +810,11 @@ function endGame(winner,reason){
   if(gameMode==='multiplayer'&&currentGameId!==null){
     document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Settling on-chain\u2026';
     document.getElementById('modal').classList.add('on');
+    const iWon = (winner === myPlayerNum);
+    if (iWon) {
+      const btnMlobby = document.getElementById('btnMlobby');
+      if (btnMlobby) { btnMlobby.disabled = true; btnMlobby.classList.add('btn-disabled'); }
+    }
   }else{
     document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Practice game \u2014 no wager.';
     document.getElementById('modal').classList.add('on');

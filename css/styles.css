@@ -331,6 +331,11 @@ nav {
   border-color: rgba(120, 200, 255, 0.5);
   color: #fff;
 }
+.btn-o:disabled, .btn-o.btn-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .hr {
   width: 280px;
   flex-shrink: 0;
