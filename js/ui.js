@@ -66,7 +66,6 @@ function _connectWS(gameId, playerNum, addr) {
     const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '' };
     console.log('[WS] Sending join:', JSON.stringify(joinMsg));
     _ws.send(JSON.stringify(joinMsg));
-    _saveActiveGame(gameId, playerNum, addr);
   };
   _ws.onmessage = (evt) => {
     let msg; try { msg = JSON.parse(evt.data); } catch { return; }
@@ -152,6 +151,7 @@ async function _mmOnMessage(msg) {
     }
     myPlayerNum     = 1;
     gameMode        = 'multiplayer';
+    _saveActiveGame(currentGameId, 1, addr);
     toast('Match found! Connecting…');
     show('game');
     _showWaitingOverlay();
@@ -183,6 +183,7 @@ async function _mmOnMessage(msg) {
     }
     myPlayerNum     = 2;
     gameMode        = 'multiplayer';
+    _saveActiveGame(currentGameId, 2, addr);
     toast('Match found! Connecting…');
     show('game');
     _showWaitingOverlay();
@@ -406,9 +407,9 @@ function _wsOnMessage(msg) {
     if (!currentGameData && currentGameId) {
       const _w = window.PengPoolWeb3;
       if (_w) {
-        _w.getGame(currentGameId)
+        _w.getMatch(currentGameId)
           .then(data => { currentGameData = data; })
-          .catch(e => console.warn('[rejoin] getGame failed:', e));
+          .catch(e => console.warn('[rejoin] getMatch failed:', e));
       }
     }
 
@@ -1189,6 +1190,24 @@ function _setWBtn(addr){
 }
 
 async function _checkRejoin(addr){
+  // If localStorage is empty, check if there's a pending match on the server
+  // (covers the case where WS failed before mm_you_are_p1/mm_join_game was received)
+  if (!_loadActiveGame()) {
+    try {
+      const _web3 = window.PengPoolWeb3;
+      if (_web3) {
+        const deposit = await _web3.getDeposit(addr);
+        if (deposit && deposit.matched === true) {
+          const resp = await fetch(HTTP_URL + '/api/pending-match/' + addr);
+          const data = await resp.json();
+          if (data.found) {
+            _saveActiveGame(String(data.matchId), data.playerNum, addr);
+          }
+        }
+      }
+    } catch(e) { console.warn('[rejoin] pending-match check failed:', e.message); }
+  }
+
   const saved=_loadActiveGame();
   if(!saved||!saved.gameId)return;
   // Only offer rejoin if the saved addr matches the connected wallet
@@ -1202,20 +1221,32 @@ async function _checkRejoin(addr){
     const data=await resp.json();
     console.log('[rejoin] game-status response:', data);
     if(!data.active){
-      console.log('[rejoin] game ended, clearing...');
-      _clearActiveGame();
-      const _endDlg=document.createElement('div');
-      _endDlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:960;font-family:"Space Mono",monospace';
-      _endDlg.innerHTML=
-        '<div style="background:#0d1b2a;border:1px solid #00c951;border-radius:8px;padding:36px 32px;text-align:center;max-width:320px;width:90%;color:#fff">'
-        +'<div style="font-size:28px;margin-bottom:12px">⏱️</div>'
-        +'<div style="font-size:13px;letter-spacing:1px;color:#00c951;margin-bottom:12px">MATCH ENDED</div>'
-        +'<div style="font-size:11px;color:rgba(255,255,255,.65);line-height:1.6;margin-bottom:24px">Your previous match has ended<br>while you were disconnected.</div>'
-        +'<button id="_endDlgOk" style="background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:11px;letter-spacing:1px;padding:10px 28px;border-radius:6px;cursor:pointer">OK</button>'
-        +'</div>';
-      document.body.appendChild(_endDlg);
-      document.getElementById('_endDlgOk').onclick=()=>_endDlg.remove();
-      return;
+      // Room not on server — check on-chain: match may still be ACTIVE if WS failed before room was created
+      let onChainActive = false;
+      try {
+        const _web3 = window.PengPoolWeb3;
+        if (_web3) {
+          const match = await _web3.getMatch(_rejoinGameId);
+          if (match && Number(match.status) === 0) onChainActive = true; // 0 = ACTIVE
+        }
+      } catch(e) { console.warn('[rejoin] getMatch failed:', e.message); }
+      if (!onChainActive) {
+        console.log('[rejoin] game ended, clearing...');
+        _clearActiveGame();
+        const _endDlg=document.createElement('div');
+        _endDlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:960;font-family:"Space Mono",monospace';
+        _endDlg.innerHTML=
+          '<div style="background:#0d1b2a;border:1px solid #00c951;border-radius:8px;padding:36px 32px;text-align:center;max-width:320px;width:90%;color:#fff">'
+          +'<div style="font-size:28px;margin-bottom:12px">⏱️</div>'
+          +'<div style="font-size:13px;letter-spacing:1px;color:#00c951;margin-bottom:12px">MATCH ENDED</div>'
+          +'<div style="font-size:11px;color:rgba(255,255,255,.65);line-height:1.6;margin-bottom:24px">Your previous match has ended<br>while you were disconnected.</div>'
+          +'<button id="_endDlgOk" style="background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:11px;letter-spacing:1px;padding:10px 28px;border-radius:6px;cursor:pointer">OK</button>'
+          +'</div>';
+        document.body.appendChild(_endDlg);
+        document.getElementById('_endDlgOk').onclick=()=>_endDlg.remove();
+        return;
+      }
+      console.log('[rejoin] server room missing but match is ACTIVE on-chain — proceeding to rejoin');
     }
     console.log('[rejoin] game still active, showing modal');
   }catch(e){

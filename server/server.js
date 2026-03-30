@@ -115,6 +115,9 @@ const aliases = new Map();
 // Map<addr, { ws, addr, alias, level, betUSD, joinedAt, range }>
 const mmQueues = { '1': new Map(), '5': new Map() };
 
+// addr.toLowerCase() → { matchId, opponentAddr, opponentAlias, playerNum, betUSD }
+const pendingMatches = new Map();
+
 // Broadcast queue counts to all players in queue
 function _broadcastQueueCounts() {
   const counts = { '1': mmQueues['1'].size, '5': mmQueues['5'].size };
@@ -156,6 +159,8 @@ async function _tryMatch(betKey) {
         }
         // On-chain confirmed — notify players
         console.log(`[mm] Match confirmed on-chain matchId=${matchId} ($${betKey}): ${p1.alias} vs ${p2.alias}`);
+        pendingMatches.set(p1.addr.toLowerCase(), { matchId, opponentAddr: p2.addr, opponentAlias: p2.alias, playerNum: 1, betUSD: betKey });
+        pendingMatches.set(p2.addr.toLowerCase(), { matchId, opponentAddr: p1.addr, opponentAlias: p1.alias, playerNum: 2, betUSD: betKey });
         _send(p1.ws, { type: 'mm_you_are_p1', betUSD: betKey, opponentAlias: p2.alias, opponentAddr: p2.addr, matchId });
         _send(p2.ws, { type: 'mm_join_game',  betUSD: betKey, opponentAlias: p1.alias, opponentAddr: p1.addr, matchId });
         p1.ws._mmMatchId = matchId;
@@ -288,6 +293,14 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && req.url.startsWith("/api/pending-match/")) {
+      const addr  = req.url.slice("/api/pending-match/".length).toLowerCase();
+      const match = pendingMatches.get(addr);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify(match ? { found: true, ...match } : { found: false }));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/player/game-result") {
       try {
         const { wallet, won } = JSON.parse(await _readBody(req));
@@ -403,6 +416,17 @@ wss.on("connection", (ws) => {
           if (other && other.readyState === 1 /* OPEN */) {
             room.pendingRejoinWs = ws;
             _send(other, { type: "request_state" });
+            room.pendingRejoinTimeout = setTimeout(() => {
+              if (room.pendingRejoinWs) {
+                _send(room.pendingRejoinWs, {
+                  type:      'rejoin_state',
+                  gameState: room.gameState || null,
+                  p1alias:   room.p1alias, p2alias: room.p2alias,
+                  p1addr:    room.p1addr,  p2addr:  room.p2addr
+                });
+                room.pendingRejoinWs = null;
+              }
+            }, 3000);
           } else {
             // Other player not connected — fall back to cached state
             _send(ws, {
@@ -455,6 +479,8 @@ wss.on("connection", (ws) => {
       // If both players present, notify both
       if (room.p1 && room.p2) {
         console.log(`[room ${gameId}] Both players ready — sending ready`);
+        pendingMatches.delete(room.p1addr?.toLowerCase());
+        pendingMatches.delete(room.p2addr?.toLowerCase());
         const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentAlias: room.p2alias, opponentNum: 2 });
         const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentAlias: room.p1alias, opponentNum: 1 });
         console.log(`[room ${gameId}] ready sent to P1=${r1ok} P2=${r2ok}`);
@@ -524,6 +550,8 @@ wss.on("connection", (ws) => {
     else if (msg.type === "sync_state") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
+      clearTimeout(room.pendingRejoinTimeout);
+      room.pendingRejoinTimeout = null;
       room.gameState = msg; // update snapshot with fresh data
       if (room.pendingRejoinWs) {
         _send(room.pendingRejoinWs, {
