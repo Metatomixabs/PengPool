@@ -301,6 +301,25 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && req.url === "/api/active-games") {
+      const games = [];
+      for (const [gameId, room] of rooms) {
+        if (!room.p1addr || !room.p2addr) continue;
+        games.push({
+          gameId,
+          p1alias: room.p1alias || room.p1addr.slice(0,6),
+          p2alias: room.p2alias || room.p2addr.slice(0,6),
+          p1addr:  room.p1addr,
+          p2addr:  room.p2addr,
+          matchId: room.matchId || null,
+          betUSD:  room.betUSD  || null,
+        });
+      }
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ games }));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/player/game-result") {
       try {
         const { wallet, won } = JSON.parse(await _readBody(req));
@@ -459,6 +478,30 @@ wss.on("connection", (ws) => {
         }
       }
 
+      if (msg.playerNum === 0) {
+        const room = rooms.get(gameId);
+        if (!room || !room.p1addr || !room.p2addr) {
+          _send(ws, { type: 'error', code: 'GAME_NOT_FOUND' });
+          ws.close();
+          return;
+        }
+        if (!room.spectators) room.spectators = new Map();
+        const specId = Date.now() + '_' + Math.random().toString(36).slice(2);
+        ws._specId  = specId;
+        ws._gameId  = gameId;
+        ws._isSpec  = true;
+        room.spectators.set(specId, ws);
+        _send(ws, {
+          type:      'spectate_start',
+          gameState: room.gameState || null,
+          p1alias:   room.p1alias, p2alias: room.p2alias,
+          p1addr:    room.p1addr,  p2addr:  room.p2addr,
+          matchId:   room.matchId || null,
+        });
+        console.log(`[room ${gameId}] spectator joined — total: ${room.spectators.size}`);
+        return;
+      }
+
       ws._gameId    = gameId;
       ws._playerNum = msg.playerNum; // 1 or 2
       ws._addr      = msg.addr || "";
@@ -526,6 +569,7 @@ wss.on("connection", (ws) => {
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, { type: "shoot" });
+      _sendSpectators(ws._gameId, { type: "shoot" });
     }
 
     // ── frame  (live ball positions while balls are moving) ───────────────
@@ -534,6 +578,7 @@ wss.on("connection", (ws) => {
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, msg);
+      _sendSpectators(ws._gameId, msg);
     }
 
     // ── result  (authoritative final ball state after a shot) ─────────────
@@ -544,6 +589,7 @@ wss.on("connection", (ws) => {
       _send(other, msg);
       // Snapshot latest game state so a reconnecting player can resume
       room.gameState = msg;
+      _sendSpectators(ws._gameId, msg);
     }
 
     // ── sync_state  (active player's live state, sent in response to request_state) ──
@@ -571,7 +617,9 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws._gameId);
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, { type: "cueUpdate", angle: msg.angle, x: msg.x, y: msg.y });
+      const cueMsg = { type: "cueUpdate", angle: msg.angle, x: msg.x, y: msg.y };
+      _send(other, cueMsg);
+      _sendSpectators(ws._gameId, cueMsg);
     }
 
     // ── sound  (shooter relays collision/rail/pocket sounds to opponent) ──
@@ -579,7 +627,9 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws._gameId);
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, { type: "sound", sound: msg.sound, param: msg.param });
+      const soundMsg = { type: "sound", sound: msg.sound, param: msg.param };
+      _send(other, soundMsg);
+      _sendSpectators(ws._gameId, soundMsg);
     }
 
     // ── timerTick  (active player broadcasts remaining seconds each tick) ──
@@ -605,6 +655,7 @@ wss.on("connection", (ws) => {
       // Relay to opponent so their screen shows the winner
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, msg);
+      _sendSpectators(ws._gameId, msg);
       // Determine winner/loser addresses from the stored room
       const winnerAddr = msg.winnerNum === 1 ? room.p1addr : room.p2addr;
       const loserAddr  = msg.winnerNum === 1 ? room.p2addr : room.p1addr;
@@ -631,6 +682,14 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    if (ws._isSpec && ws._gameId) {
+      const room = rooms.get(ws._gameId);
+      if (room?.spectators) {
+        room.spectators.delete(ws._specId);
+        console.log(`[room ${ws._gameId}] spectator left — remaining: ${room.spectators.size}`);
+      }
+      return;
+    }
     // Remove from matchmaking queue if present
     for (const q of Object.values(mmQueues)) q.delete(ws._addr);
     if (!ws._gameId) return;
@@ -699,6 +758,14 @@ function _send(ws, obj) {
   }
   console.warn(`[_send] FAILED — ws=${ws?`readyState:${ws.readyState}`:'null'} msg=${obj.type}`);
   return false;
+}
+
+function _sendSpectators(gameId, msg) {
+  const room = rooms.get(gameId);
+  if (!room?.spectators) return;
+  for (const ws of room.spectators.values()) {
+    _send(ws, msg);
+  }
 }
 
 db.init().catch(e => console.error("[db] init failed:", e.message, e.stack));

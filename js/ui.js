@@ -9,6 +9,7 @@ let myGameId        = null;        // ID of a game we created (waiting for P2)
 let selectedBetUSD  = 1;           // bet tier chosen in matchmaking
 let _mmCountdown    = 10;
 let _mmCdInterval   = null;
+let _liveGamesInterval = null;
 let _receivedGameOver = false; // guard to avoid echo when we receive gameover from WS
 let _matchReady     = false;   // true once the pre-match countdown finishes
 let _matchCdInterval = null;
@@ -320,7 +321,7 @@ function _wsOnMessage(msg) {
   }
   else if (msg.type === 'cueUpdate') {
     // Ignore if opponent's shot is already in flight (guards against stale in-flight messages)
-    if (G && !G.isMyLastShot()) return;
+    if (gameMode === 'multiplayer' && cur === myPlayerNum) return;
     _oppCueAngle = msg.angle;
     _oppCueActive = true;
   }
@@ -468,6 +469,17 @@ function _wsOnMessage(msg) {
           '<span style="font-family:\'Space Mono\',monospace;font-size:9px;color:var(--t2)">Settled \xb7 '+short+'</span>');
       }
     }
+  }
+  else if (msg.type === 'spectate_start') {
+    if (msg.gameState && G) G.applyResult(msg.gameState);
+    const p1label = document.getElementById('p1label');
+    const p2label = document.getElementById('p2label');
+    if (p1label) p1label.textContent = msg.p1alias || 'Player 1';
+    if (p2label) p2label.textContent = msg.p2alias || 'Player 2';
+    const badge = document.getElementById('spectatorBadge');
+    if (badge) badge.style.display = 'block';
+    _matchReady = true;
+    _hideWaitingOverlay();
   }
   else if (msg.type === 'disconnect') {
     toast('Opponent disconnected!', 1);
@@ -745,8 +757,10 @@ function show(id) {
   if (id !== 'game') {
     const gameEl = document.getElementById('game');
     if (gameEl) gameEl.classList.add('hidden');
+    const badge = document.getElementById('spectatorBadge');
+    if (badge) badge.style.display = 'none';
   }
-  if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; }
+  if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; clearInterval(_liveGamesInterval); _liveGamesInterval = null; }
   if (id !== 'game') _hideWaitingOverlay();
   const el = document.getElementById(id); if (el) el.classList.remove('hidden');
 }
@@ -826,7 +840,7 @@ function _cueMouseMove(e){
   const r=C.getBoundingClientRect();
   const mx=(e.clientX-r.left)*(W/r.width),my=(e.clientY-r.top)*(H/r.height);
   if(!moving&&cue&&!cue.out&&running){
-    if(gameMode==='multiplayer'&&cur!==myPlayerNum)return;
+    if((gameMode==='multiplayer'&&cur!==myPlayerNum)||gameMode==='spectator')return;
     if(gameMode==='bot'&&cur!==myPlayerNum)return;
     if(ballInHand){
       // Drag cue ball preview along the vertical head-string (x fixed, y free)
@@ -866,7 +880,7 @@ function _cueMouseUp(){
 }
 C.addEventListener('mousedown',e=>{
   if(moving||!running||!cue||cue.out||e.button!==0)return;
-  if(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum))return;
+  if(gameMode==='spectator'||(gameMode==='multiplayer'&&(!_matchReady||cur!==myPlayerNum)))return;
   if(gameMode==='bot'&&cur!==myPlayerNum)return;
   if(ballInHand){
     // Confirm placement only — do NOT start charging on this same click.
@@ -1279,11 +1293,59 @@ async function _checkRejoin(addr){
   };
 }
 
+async function _loadLiveGames() {
+  const list = document.getElementById('mmLiveList');
+  if (!list) return;
+  try {
+    const res  = await fetch(HTTP_URL + '/api/active-games');
+    const data = await res.json();
+    if (!data.games || data.games.length === 0) {
+      list.innerHTML = '<div class="mm-live-empty">No active games</div>';
+      return;
+    }
+    const me = window.PengPoolWeb3?.getAddress()?.toLowerCase() || null;
+    list.innerHTML = data.games.map(g => {
+      const isPlayer = me && (g.p1addr.toLowerCase() === me || g.p2addr.toLowerCase() === me);
+      const btn = isPlayer
+        ? `<button class="mm-live-btn mm-live-btn--rejoin" onclick="_rejoinFromList('${g.gameId}')">REJOIN</button>`
+        : `<button class="mm-live-btn" onclick="_watchGame('${g.gameId}')">WATCH</button>`;
+      const bet = g.betUSD ? `$${g.betUSD}` : '';
+      return `<div class="mm-live-row">
+        <span class="mm-live-players">${g.p1alias} vs ${g.p2alias}</span>
+        ${bet ? `<span class="mm-live-bet">${bet}</span>` : ''}
+        ${btn}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="mm-live-empty">—</div>';
+  }
+}
+
+function _rejoinFromList(gameId) {
+  // placeholder — lógica de rejoin existente
+  console.log('[live] rejoin from list:', gameId);
+}
+
+async function _watchGame(gameId) {
+  const addr = await window.PengPoolWeb3?.getAddress?.() || '0x0';
+  gameMode      = 'spectator';
+  currentGameId = gameId;
+  myPlayerNum   = 0;
+  show('game');
+  _showWaitingOverlay('Connecting to game…');
+  _connectWS(gameId, 0, addr);
+}
+window._watchGame      = _watchGame;
+window._rejoinFromList = _rejoinFromList;
+
 function _openMM(){
   const w=window.PengPoolWeb3;
   const el=document.getElementById('mmAddr');if(el&&w)el.textContent=getDisplayName(w.getAddress());
   show('matchmaking');
   _mmStart();
+  _loadLiveGames();
+  clearInterval(_liveGamesInterval);
+  _liveGamesInterval = setInterval(_loadLiveGames, 5000);
 }
 
 function _mmStart(){

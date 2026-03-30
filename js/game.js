@@ -1423,8 +1423,8 @@ function drawCue() {
   // ── Opponent's cue and aim guide (visible while they are aiming) ─────────
   const _isMyTurn =
     typeof gameMode === "undefined" ||
-    gameMode !== "multiplayer" ||
-    cur === myPlayerNum;
+    (gameMode !== "multiplayer" && gameMode !== "spectator") ||
+    (gameMode === "spectator" ? false : cur === myPlayerNum);
   if (
     typeof _oppCueActive !== "undefined" &&
     _oppCueActive &&
@@ -1690,7 +1690,7 @@ function loop(ts) {
   if (
     _remoteTargets &&
     typeof gameMode !== "undefined" &&
-    gameMode === "multiplayer" &&
+    (gameMode === "multiplayer" || gameMode === "spectator") &&
     !_myLastShot
   ) {
     for (let i = 0; i < balls.length; i++) {
