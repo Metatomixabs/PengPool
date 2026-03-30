@@ -617,7 +617,7 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws._gameId);
       if (!room) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      const cueMsg = { type: "cueUpdate", angle: msg.angle, x: msg.x, y: msg.y };
+      const cueMsg = { type: "cueUpdate", angle: msg.angle, x: msg.x, y: msg.y, ballInHand: msg.ballInHand };
       _send(other, cueMsg);
       _sendSpectators(ws._gameId, cueMsg);
     }

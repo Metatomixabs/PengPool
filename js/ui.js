@@ -323,7 +323,8 @@ function _wsOnMessage(msg) {
     // Ignore if opponent's shot is already in flight (guards against stale in-flight messages)
     if (gameMode === 'multiplayer' && cur === myPlayerNum) return;
     _oppCueAngle = msg.angle;
-    _oppCueActive = true;
+    if (msg.ballInHand) { _oppCueActive = false; } else { _oppCueActive = true; }
+    if (msg.x != null && msg.y != null && cue && !cue.out) { cue.x = msg.x; cue.y = msg.y; }
   }
   else if (msg.type === 'shoot') {
     // Opponent fired — cue disappears, no local physics; animation comes via 'frame' messages
@@ -848,6 +849,10 @@ function _cueMouseMove(e){
       cue.y=Math.max(WT+R,Math.min(WB-R,my));
       cue.vx=0;cue.vy=0;
       aiming=false;
+      if(gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){
+        const _n=Date.now();
+        if(_n-_lastCueUpdateWs>32){_lastCueUpdateWs=_n;_wsSend({type:'cueUpdate',gameId:currentGameId,angle,x:cue.x,y:cue.y,ballInHand:true});}
+      }
     } else if(charging&&_dragOrigin){
       // Drag mode: angle frozen, distance from origin controls power
       const dx=mx-_dragOrigin.x, dy=my-_dragOrigin.y;

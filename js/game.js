@@ -825,7 +825,7 @@ function eight(pi) {
 
 function _applyShot(a, p, sx, sy) {
   // Core shot physics — used by both local shoot() and remote applyRemoteShoot()
-  const spd = (p / 75) * MAXP; // used to be 100 slow power shoot, increased the speed for better gameplay and table break.
+  const spd = (p / 85) * MAXP; // used to be 100 slow power shoot, increased the speed for better gameplay and table break.
   cue.vx = Math.cos(a) * spd;
   cue.vy = Math.sin(a) * spd;
   cue.spinX = sx;
@@ -1538,6 +1538,7 @@ function drawCue() {
   }
 
   if (!aiming || !running || moving || !cue || cue.out) return;
+  if (gameMode === 'multiplayer' && cur !== myPlayerNum) return;
 
   const pos = cueScreenPos();
   const cx2 = pos.x,
