@@ -4,6 +4,8 @@
 // ═══════════════════════════
 const C = document.getElementById("pool");
 const cx = C.getContext("2d");
+cx.imageSmoothingEnabled = true;
+cx.imageSmoothingQuality = 'high';
 const W = C.width,
   H = C.height; // logical px: 800 × 500
 const _dpr = window.devicePixelRatio || 1;
@@ -98,6 +100,54 @@ const ballSprites = {};
 const SPRITE_COLS = 12,
   SPRITE_ROWS = 10,
   SPRITE_FRAMES = 120;
+
+// ── Ball render cache ─────────────────────────────────────────────────────────
+// _ballOverlayCanvas: shading, specular and rim pre-baked once at startup.
+// Drawn over each ball with a single drawImage — removes 2× createRadialGradient
+// and 5× addColorStop from the hot path (called 16× per frame at 60 fps).
+const _OL_PAD = 1; // 1px padding so the 0.5px rim stroke is not clipped
+const _ballOverlayCanvas = (function () {
+  const size = R * 2 + _OL_PAD * 2;
+  const oc = document.createElement('canvas');
+  oc.width  = size;
+  oc.height = size;
+  const ctx = oc.getContext('2d');
+  ctx.translate(R + _OL_PAD, R + _OL_PAD); // (0,0) = ball centre
+
+  // Shading + shine must be clipped to the ball circle
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, Math.PI * 2);
+  ctx.clip();
+
+  const shading = ctx.createRadialGradient(R * 0.2, R * 0.2, R * 0.3, R * 0.2, R * 0.2, R);
+  shading.addColorStop(0, 'rgba(80,80,80,0)');
+  shading.addColorStop(1, 'rgba(80,80,80,0.25)');
+  ctx.fillStyle = shading;
+  ctx.fillRect(-R, -R, R * 2, R * 2);
+
+  const shine = ctx.createRadialGradient(-R * 0.35, -R * 0.35, 0, -R * 0.35, -R * 0.35, R * 0.7);
+  shine.addColorStop(0, 'rgba(255,255,255,0.45)');
+  shine.addColorStop(0.4, 'rgba(255,255,255,0.1)');
+  shine.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = shine;
+  ctx.fillRect(-R, -R, R * 2, R * 2);
+
+  ctx.restore(); // end clip
+
+  // Rim stroke (outside clip, so it sits on the edge of the circle)
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  return oc;
+})();
+
+// _spriteDims: cached {fw, fh} per ball id — avoids dividing sprite dimensions every frame.
+const _spriteDims = {};
+
 const PRAIL = 28;
 const PKT = [
   { x: 42, y: 62, r: 24, type: "corner" }, // esquina TL
@@ -337,7 +387,7 @@ function initState() {
     ry = H / 2,
     S = Math.sin(Math.PI / 3);
   const spx = Math.sqrt(3) * R * 1.05,
-    spy = (R / S) * 1.05; // 5% gap so balls touch without overlapping
+    spy = (R / S); // removed the 5% gap for better break.
   const pos = [
     [0, 0],
     [1, -S],
@@ -517,6 +567,14 @@ function phys() {
             cue.vy -= dv * cny;
             o.vx += dv * cnx;
             o.vy += dv * cny;
+          }
+          if (firstContactId === null) firstContactId = o.id;
+          if (!cue.spun) {
+            cue.vx += Math.cos(angle) * cue.spinY * cue.shotSpd * 0.22;
+            cue.vy += Math.sin(angle) * cue.spinY * cue.shotSpd * 0.22;
+            cue.vx += Math.cos(angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+            cue.vy += Math.sin(angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+            cue.spun = true;
           }
           cue._ccdDone = true;
           break;
@@ -767,7 +825,7 @@ function eight(pi) {
 
 function _applyShot(a, p, sx, sy) {
   // Core shot physics — used by both local shoot() and remote applyRemoteShoot()
-  const spd = (p / 100) * MAXP;
+  const spd = (p / 75) * MAXP; // used to be 100 slow power shoot, increased the speed for better gameplay and table break.
   cue.vx = Math.cos(a) * spd;
   cue.vy = Math.sin(a) * spd;
   cue.spinX = sx;
@@ -1302,75 +1360,55 @@ function drawBallIcon(id, canvasEl) {
   ctx.restore();
 }
 
+  // enhanced the 3d look of the balls
 function drawBall(b) {
   if (b.out) return;
   cx.save();
   cx.translate(b.x, b.y);
-  // Drop shadow
+
+  // 1. Drop Shadow (on the felt)
   cx.beginPath();
   cx.arc(2, 3, R, 0, Math.PI * 2);
-  cx.fillStyle = "rgba(0,0,0,.3)";
+  cx.fillStyle = 'rgba(0,0,0,.25)';
   cx.fill();
+
+  // 2. Ball Body (clipped to circle)
+  cx.save();
+  cx.beginPath();
+  cx.arc(0, 0, R, 0, Math.PI * 2);
+  cx.clip();
+
   if (b.id === 0) {
-    // Cue ball — plain white gradient, no sprite
-    const g = cx.createRadialGradient(-3, -3, 1, 0, 0, R);
-    g.addColorStop(0, "#fff");
-    g.addColorStop(1, "#ccc");
-    cx.beginPath();
-    cx.arc(0, 0, R, 0, Math.PI * 2);
-    cx.fillStyle = g;
-    cx.fill();
+    // Cue Ball Base
+    cx.fillStyle = '#ffffff';
+    cx.fillRect(-R, -R, R * 2, R * 2);
   } else {
     const sprite = ballSprites[b.id];
     const frameIndex = Math.floor((b.totalRotation || 0) * 13) % SPRITE_FRAMES;
-    // --- clipped region: base color + sprite ---
-    cx.save();
-    cx.beginPath();
-    cx.arc(0, 0, R, 0, Math.PI * 2);
-    cx.clip();
+
+    // Base Color (Solid or White for Stripes)
+    cx.fillStyle = b.s ? '#ffffff' : BD[b.id].c;
+    cx.fillRect(-R, -R, R * 2, R * 2);
+
+    // Draw Sprite — frame dimensions cached on first use
     if (sprite) {
-      const fw = sprite.width / SPRITE_COLS;
-      const fh = sprite.height / SPRITE_ROWS;
+      if (!_spriteDims[b.id])
+        _spriteDims[b.id] = { fw: sprite.width / SPRITE_COLS, fh: sprite.height / SPRITE_ROWS };
+      const { fw, fh } = _spriteDims[b.id];
       const col = frameIndex % SPRITE_COLS;
       const row = Math.floor(frameIndex / SPRITE_COLS);
-      // Rotate canvas so sprite rolling axis aligns with movement direction
+      cx.save();
       cx.rotate(b.visualAngle || 0);
-      // Solids: base color from BD; stripes: white so the sprite's own colors show correctly
-      cx.fillStyle = b.s ? "#ffffff" : BD[b.id].c;
-      cx.fillRect(-R, -R, R * 2, R * 2);
-      // Sprite (black bg already transparent) overlaid cleanly on the base color
       cx.drawImage(sprite, col * fw, row * fh, fw, fh, -R, -R, R * 2, R * 2);
-    } else {
-      // Fallback if sprite not yet loaded
-      if (b.s) {
-        const g = cx.createRadialGradient(-2, -2, 1, 0, 0, R);
-        g.addColorStop(0, "#fff");
-        g.addColorStop(1, "#e0e0e0");
-        cx.fillStyle = g;
-        cx.fillRect(-R, -R, R * 2, R * 2);
-        cx.fillStyle = b.c;
-        cx.fillRect(-R, -R * 0.42, R * 2, R * 0.84);
-      } else {
-        const g = cx.createRadialGradient(-3, -3, 1, 0, 0, R);
-        g.addColorStop(0, lx(b.c, 50));
-        g.addColorStop(0.5, b.c);
-        g.addColorStop(1, dk(b.c, 40));
-        cx.fillStyle = g;
-        cx.fillRect(-R, -R, R * 2, R * 2);
-      }
+      cx.restore();
     }
-    cx.restore(); // removes clip
   }
-  // Specular highlight + border drawn over everything, no clip
-  cx.beginPath();
-  cx.arc(-3, -3, R * 0.27, 0, Math.PI * 2);
-  cx.fillStyle = "rgba(255,255,255,.22)";
-  cx.fill();
-  cx.beginPath();
-  cx.arc(0, 0, R, 0, Math.PI * 2);
-  cx.strokeStyle = "rgba(0,0,0,.3)";
-  cx.lineWidth = 1;
-  cx.stroke();
+
+  cx.restore(); // End of clipped ball body
+
+  // 3. Shading + specular + rim — single drawImage from pre-baked offscreen canvas
+  cx.drawImage(_ballOverlayCanvas, -(R + _OL_PAD), -(R + _OL_PAD));
+
   cx.restore();
 }
 
@@ -1660,9 +1698,6 @@ function ballSegmentCollision(b, x1, y1, x2, y2) {
 
 let _lastLoopTime = 0;
 function loop(ts) {
-  if (!window._loopCount) window._loopCount = 0;
-  window._loopCount++;
-  if (window._loopCount % 300 === 0) console.log('[loop] frame', window._loopCount, 'ts:', ts);
   const frameDelta = ts - _lastLoopTime;
   _lastLoopTime = ts;
   cx.clearRect(0, 0, W, H);
@@ -1676,15 +1711,14 @@ function loop(ts) {
   moving = phys();
   if (was && !moving) shotEnd();
   // Stream live ball positions to opponent while balls are moving.
-  // Skip send if the frame took >50ms (browser under load) to avoid flooding the socket.
   if (
     moving &&
     typeof gameMode !== "undefined" &&
     gameMode === "multiplayer" &&
-    _myLastShot
+    _myLastShot &&
+    typeof window._wsOnFrame === "function"
   ) {
-    if (frameDelta < 50 && typeof window._wsOnFrame === "function")
-      window._wsOnFrame(balls);
+    window._wsOnFrame(balls);
   }
   // Interpolate toward remote targets when watching opponent's shot
   if (

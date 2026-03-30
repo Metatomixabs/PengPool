@@ -119,8 +119,6 @@
       ]}
   ];
 
-  var GameStatus = Object.freeze({ OPEN:0, ACTIVE:1, FINISHED:2, CANCELLED:3 });
-
   // ── Estado interno ────────────────────────────────────────────────────────
 
   var _pub  = null;   // publicClient  (lecturas)
@@ -382,7 +380,6 @@
     getAddress:     function () { return _agw; },
     getEOA:         function () { return _eoa; },
     isConnected:    function () { return _abs !== null; },
-    GameStatus:     GameStatus,
     PENGPOOL_ADDRESS: PENGPOOL_ADDRESS,
     formatEther:    formatEther,
   });

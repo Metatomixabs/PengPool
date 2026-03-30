@@ -1,6 +1,6 @@
 const { ethers } = require("hardhat");
 
-const PENGPOOL_ADDRESS = "0xEeA18855Ffd6824dB84e17e27E616771dFAbfC1F";
+const PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455"; // PengPoolV2
 
 const PENGPOOL_ABI = [
   "function skipStalenessCheck() view returns (bool)",
@@ -8,6 +8,9 @@ const PENGPOOL_ABI = [
   "function betAmountWei(uint8) view returns (uint256)",
   "function getLatestPrice() view returns (int256, uint8)",
   "function owner() view returns (address)",
+  "function matchmaker() view returns (address)",
+  "function getDeposit(address player) view returns (uint256 amount, uint8 betUSD, bool matched)",
+  "function getMatch(uint256 matchId) view returns (address player1, address player2, uint256 betAmount, uint8 betUSD, uint8 status, address winner, uint256 declaredAt)",
 ];
 
 const MOCK_ABI = [
@@ -37,6 +40,10 @@ async function main() {
   const owner = await contract.owner();
   console.log("owner             :", owner);
 
+  // 3b. matchmaker (V2)
+  const matchmaker = await contract.matchmaker();
+  console.log("matchmaker        :", matchmaker);
+
   // 4. Check if priceFeed has code (exists on-chain)
   const code = await provider.getCode(feedAddr);
   const feedExists = code !== "0x";
@@ -59,6 +66,35 @@ async function main() {
     } catch (e) {
       console.log("  latestRoundData() FAILED:", e.message);
     }
+  }
+
+  // 6a. getDeposit for deployer (V2)
+  console.log("---");
+  console.log("Calling getDeposit(deployer)...");
+  try {
+    const [signers] = [await ethers.getSigners()];
+    const dep = await contract.getDeposit(signers[0].address);
+    console.log("  amount :", dep.amount.toString(), "wei");
+    console.log("  betUSD :", dep.betUSD.toString());
+    console.log("  matched:", dep.matched);
+  } catch (e) {
+    console.log("  getDeposit() FAILED:", e.message);
+  }
+
+  // 6b. getMatch(0) — check if match 0 exists (V2)
+  console.log("---");
+  console.log("Calling getMatch(0)...");
+  try {
+    const m = await contract.getMatch(0);
+    console.log("  player1   :", m.player1);
+    console.log("  player2   :", m.player2);
+    console.log("  betAmount :", m.betAmount.toString(), "wei");
+    console.log("  betUSD    :", m.betUSD.toString());
+    const statuses = ["ACTIVE", "FINISHED"];
+    console.log("  status    :", statuses[m.status] || m.status.toString());
+    console.log("  winner    :", m.winner);
+  } catch (e) {
+    console.log("  getMatch(0) FAILED (no matches yet?):", e.message);
   }
 
   // 6. Try betAmountWei(1)
