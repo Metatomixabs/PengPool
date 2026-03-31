@@ -53,9 +53,14 @@ async function _settle(gameId, winnerAddress, room) {
   if (_settling.has(key)) { console.log(`[settle] game ${gameId} already settling, skipping`); return; }
   _settling.add(key);
 
+  if (room.p1addr) settlingAddrs.add(room.p1addr.toLowerCase());
+  if (room.p2addr) settlingAddrs.add(room.p2addr.toLowerCase());
+
   const contract = _getContract();
   if (!contract) {
     _broadcastRoom(room, { type: "settled", error: "Server wallet not configured" });
+    settlingAddrs.delete(room.p1addr?.toLowerCase());
+    settlingAddrs.delete(room.p2addr?.toLowerCase());
     return;
   }
 
@@ -66,11 +71,21 @@ async function _settle(gameId, winnerAddress, room) {
     await tx.wait();
     console.log(`[settle] game ${gameId} confirmed`);
     _broadcastRoom(room, { type: "settled", txHash: tx.hash, gameId, winnerNum: room.winnerNum });
+    console.log('[settle] room.betUSD =', room.betUSD, '| room.matchId =', room.matchId);
+    const existing = pendingClaims.get(winnerAddress.toLowerCase()) || [];
+    existing.push({ matchId: gameId, betUSD: room.betUSD });
+    pendingClaims.set(winnerAddress.toLowerCase(), existing);
+    settlingAddrs.delete(room.p1addr?.toLowerCase());
+    settlingAddrs.delete(room.p2addr?.toLowerCase());
+    rooms.delete(String(gameId));
   } catch (err) {
     const msg = err.shortMessage || err.message || String(err);
     console.error(`[settle] game ${gameId} failed:`, msg);
     _broadcastRoom(room, { type: "settled", error: msg, gameId });
     _settling.delete(key); // allow retry if transient error
+    settlingAddrs.delete(room.p1addr?.toLowerCase());
+    settlingAddrs.delete(room.p2addr?.toLowerCase());
+    rooms.delete(String(gameId));
   }
 }
 
@@ -118,6 +133,12 @@ const mmQueues = { '1': new Map(), '5': new Map() };
 // addr.toLowerCase() → { matchId, opponentAddr, opponentAlias, playerNum, betUSD }
 const pendingMatches = new Map();
 
+// addr.toLowerCase() → { matchId, betUSD }
+const pendingClaims = new Map();
+
+// addresses blocked while _settle() is in-flight
+const settlingAddrs = new Set();
+
 // Broadcast queue counts to all players in queue
 function _broadcastQueueCounts() {
   const counts = { '1': mmQueues['1'].size, '5': mmQueues['5'].size };
@@ -138,6 +159,9 @@ async function _tryMatch(betKey) {
       const a = entries[i], b = entries[j];
       const range = Math.min(a.range, b.range);
       if (Math.abs(a.level - b.level) <= range) {
+        // Skip any candidate whose settle is still in-flight
+        if (settlingAddrs.has(a.addr.toLowerCase())) continue;
+        if (settlingAddrs.has(b.addr.toLowerCase())) continue;
         // Found a match — remove both from queue
         queue.delete(a.addr);
         queue.delete(b.addr);
@@ -148,12 +172,50 @@ async function _tryMatch(betKey) {
         try {
           matchId = await _matchOnChain(p1.addr, p2.addr, betKey);
         } catch(err) {
-          console.error('[mm] on-chain match failed — re-queuing players:', err.message);
-          _send(p1.ws, { type: 'mm_error', reason: 'match_failed' });
-          _send(p2.ws, { type: 'mm_error', reason: 'match_failed' });
-          // Re-add to queue
-          mmQueues[betKey].set(p1.addr, { ...p1, range: p1.range });
-          mmQueues[betKey].set(p2.addr, { ...p2, range: p2.range });
+          console.error('[mm] on-chain match failed:', err.message);
+          const errMsg = (err.shortMessage || err.message || '').toLowerCase();
+          const isDepositError = errMsg.includes('no valid deposit') || errMsg.includes('deposit');
+          if (isDepositError) {
+            // Try to identify which player's deposit failed.
+            // Contract reverts on the first invalid deposit it checks (p1 first, then p2).
+            // Heuristic: revert data mentioning addr helps, otherwise assume p2 failed
+            // since p1 is checked first and a p1 failure would revert before reaching p2.
+            const p1AddrLower = p1.addr.toLowerCase();
+            const p2AddrLower = p2.addr.toLowerCase();
+            const errStr = err.message || '';
+            const p1Mentioned = errStr.toLowerCase().includes(p1AddrLower.slice(2, 10));
+            const p2Mentioned = errStr.toLowerCase().includes(p2AddrLower.slice(2, 10));
+
+            let depositFailedPlayer = null;
+            if (p1Mentioned && !p2Mentioned) depositFailedPlayer = 'p1';
+            else if (p2Mentioned && !p1Mentioned) depositFailedPlayer = 'p2';
+            // If ambiguous, send mm_requeue to both
+
+            if (depositFailedPlayer === 'p1') {
+              console.log(`[mm] deposit failed for P1 (${p1.addr.slice(0,8)}…) — keeping P2 in queue`);
+              _send(p1.ws, { type: 'mm_error', reason: 'deposit_not_found' });
+              _send(p2.ws, { type: 'mm_requeue', reason: 'opponent_deposit_failed' });
+              mmQueues[betKey].set(p2.addr, { ...p2, range: p2.range });
+            } else if (depositFailedPlayer === 'p2') {
+              console.log(`[mm] deposit failed for P2 (${p2.addr.slice(0,8)}…) — keeping P1 in queue`);
+              _send(p2.ws, { type: 'mm_error', reason: 'deposit_not_found' });
+              _send(p1.ws, { type: 'mm_requeue', reason: 'opponent_deposit_failed' });
+              mmQueues[betKey].set(p1.addr, { ...p1, range: p1.range });
+            } else {
+              console.log('[mm] deposit error — cannot identify which player, requeuing both');
+              _send(p1.ws, { type: 'mm_requeue', reason: 'opponent_deposit_failed' });
+              _send(p2.ws, { type: 'mm_requeue', reason: 'opponent_deposit_failed' });
+              mmQueues[betKey].set(p1.addr, { ...p1, range: p1.range });
+              mmQueues[betKey].set(p2.addr, { ...p2, range: p2.range });
+            }
+          } else {
+            // Generic failure — requeue both
+            console.log('[mm] generic match failure — requeuing both players');
+            _send(p1.ws, { type: 'mm_requeue', reason: 'match_failed' });
+            _send(p2.ws, { type: 'mm_requeue', reason: 'match_failed' });
+            mmQueues[betKey].set(p1.addr, { ...p1, range: p1.range });
+            mmQueues[betKey].set(p2.addr, { ...p2, range: p2.range });
+          }
           _broadcastQueueCounts();
           return;
         }
@@ -165,6 +227,8 @@ async function _tryMatch(betKey) {
         _send(p2.ws, { type: 'mm_join_game',  betUSD: betKey, opponentAlias: p1.alias, opponentAddr: p1.addr, matchId });
         p1.ws._mmMatchId = matchId;
         p2.ws._mmMatchId = matchId;
+        p1.ws._mmBetUSD  = betKey;
+        p2.ws._mmBetUSD  = betKey;
         // Store pending match so P1 can report gameId
         p1.ws._mmPendingP2 = p2;
         p2.ws._mmWaitingForGameId = true;
@@ -209,7 +273,7 @@ const httpServer = http.createServer(async (req, res) => {
 
   try {
     if (req.method === "OPTIONS") {
-      res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type" });
+      res.writeHead(204, { ...CORS, "Access-Control-Allow-Methods": "GET, POST, DELETE", "Access-Control-Allow-Headers": "Content-Type" });
       res.end(); return;
     }
 
@@ -298,6 +362,48 @@ const httpServer = http.createServer(async (req, res) => {
       const match = pendingMatches.get(addr);
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
       res.end(JSON.stringify(match ? { found: true, ...match } : { found: false }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/player-status/")) {
+      const addr = req.url.slice("/api/player-status/".length).toLowerCase();
+      let status = 'ok';
+      if (settlingAddrs.has(addr)) {
+        status = 'settling';
+      } else {
+        for (const room of rooms.values()) {
+          if (room.p1addr?.toLowerCase() === addr || room.p2addr?.toLowerCase() === addr) {
+            status = 'in_room';
+            break;
+          }
+        }
+      }
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ status }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/pending-claim/")) {
+      const addr  = req.url.slice("/api/pending-claim/".length).toLowerCase();
+      const claims = pendingClaims.get(addr) || [];
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ found: claims.length > 0, claims }));
+      return;
+    }
+
+    if (req.method === "DELETE" && req.url.startsWith("/api/pending-claim/")) {
+      const addr = req.url.slice("/api/pending-claim/".length).toLowerCase();
+      const delBody = await _readBody(req);
+      const { matchId: delMatchId } = JSON.parse(delBody);
+      const claims = pendingClaims.get(addr) || [];
+      const updated = claims.filter(c => String(c.matchId) !== String(delMatchId));
+      if (updated.length === 0) {
+        pendingClaims.delete(addr);
+      } else {
+        pendingClaims.set(addr, updated);
+      }
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
 
@@ -514,7 +620,9 @@ wss.on("connection", (ws) => {
       room[`p${msg.playerNum}addr`]  = ws._addr;
       room[`p${msg.playerNum}alias`] = ws._alias;
 
-      if (ws._mmMatchId) room.matchId = ws._mmMatchId;
+      if (msg.betUSD)  room.betUSD  = String(msg.betUSD);
+      if (msg.matchId) room.matchId = msg.matchId;
+      if (msg.gameId)  room.matchId = room.matchId || String(msg.gameId);
       if (ws._alias) aliases.set(ws._addr.toLowerCase(), ws._alias);
       console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);
@@ -548,6 +656,8 @@ wss.on("connection", (ws) => {
         db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
       if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
         db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
+      pendingMatches.delete(room.p1addr?.toLowerCase());
+      pendingMatches.delete(room.p2addr?.toLowerCase());
       if (_leaveWinAddr && _leaveWinAddr !== ZERO) {
         room.winnerNum = winnerNum;
         _settle(ws._gameId, _leaveWinAddr, room);
@@ -713,6 +823,7 @@ wss.on("connection", (ws) => {
     }
 
     // ── CASE B: involuntary disconnect — start 60s reconnect window ────────
+    if (_settling.has(String(ws._gameId))) return; // settle already in-flight, no countdown needed
     console.log(`[room ${ws._gameId}] P${pNum} disconnected — starting 60s window`);
     room[`p${pNum}`] = null; // clear stale socket; addr is preserved for reconnect check
 
@@ -756,7 +867,8 @@ function _send(ws, obj) {
     ws.send(JSON.stringify(obj));
     return true;
   }
-  console.warn(`[_send] FAILED — ws=${ws?`readyState:${ws.readyState}`:'null'} msg=${obj.type}`);
+  if (!ws) return false; // null socket — silent return, no log
+  console.warn(`[_send] FAILED — ws readyState:${ws.readyState} msg=${obj.type}`);
   return false;
 }
 

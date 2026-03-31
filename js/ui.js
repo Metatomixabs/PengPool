@@ -64,7 +64,7 @@ function _connectWS(gameId, playerNum, addr) {
     return;
   }
   _ws.onopen = () => {
-    const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '' };
+    const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '', betUSD: _mmBetKey };
     console.log('[WS] Sending join:', JSON.stringify(joinMsg));
     _ws.send(JSON.stringify(joinMsg));
   };
@@ -201,8 +201,17 @@ async function _mmOnMessage(msg) {
     }
   }
 
+  else if (msg.type === 'mm_requeue') {
+    // Stay in queue — opponent had an issue, keep searching
+    toast('Opponent issue — still searching…', 2);
+  }
+
   else if (msg.type === 'mm_error') {
-    toast('Matchmaking error: ' + msg.reason, 1);
+    if (msg.reason === 'deposit_not_found') {
+      toast('Deposit not detected on-chain. Please try again.', 3);
+    } else {
+      toast('Matchmaking error: ' + msg.reason, 1);
+    }
     _leaveMmQueue();
   }
 }
@@ -212,6 +221,17 @@ async function _enterQueue(betUSD) {
   const addr = w?.getAddress();
   if (!addr) { toast('Connect wallet first', 1); return; }
   await _fetchMyLevel(addr);
+
+  const statusRes = await fetch(HTTP_URL + '/api/player-status/' + addr).then(r => r.json());
+  if (statusRes.status === 'settling') {
+    toast('Previous match is still closing, please wait a few seconds.', 3);
+    return;
+  }
+  if (statusRes.status === 'in_room') {
+    toast('You already have an active match. Use Recovery Panel to rejoin.', 3);
+    return;
+  }
+
   _mmBetKey = String(betUSD);
 
   // Populate search screen fields
@@ -435,7 +455,7 @@ function _wsOnMessage(msg) {
         '<span style="font-size:11px;color:#ff6b6b">Settlement failed: '+msg.error+'</span>');
     } else {
       const iWon = (msg.winnerNum === myPlayerNum);
-      if (iWon && currentGameId) {
+      if (iWon && currentGameId && String(msg.gameId) === String(currentGameId)) {
         // Show claim button — let the winner trigger the wallet popup manually
         sub.innerHTML = sub.innerHTML.replace('Settling on-chain\u2026', 'You won! Claim your reward below.');
         const btnClaim  = document.getElementById('btnClaim');
@@ -457,6 +477,14 @@ function _wsOnMessage(msg) {
               btnClaim.style.display = 'none';
               btnMlobby.disabled = false;
               btnMlobby.classList.remove('btn-disabled');
+              const _claimAddr = window.PengPoolWeb3?.getAddress();
+              if (_claimAddr) {
+                fetch(HTTP_URL + '/api/pending-claim/' + _claimAddr, {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ matchId: currentGameId })
+                }).catch(e => console.warn('[claim] pending-claim cleanup failed:', e));
+              }
             })
             .catch(e => {
               sub.innerHTML = '<span style="font-size:11px;color:#ff6b6b">Claim failed \u2014 try again.</span>';
@@ -928,6 +956,143 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
   document.getElementById('btnRulesClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
+
+// ── RECOVERY PANEL ───────────────────────────────────────────────────────────
+(function(){
+  document.getElementById('btnRecovery').addEventListener('click', _openRecoveryPanel);
+
+  function _openRecoveryPanel() {
+    if (document.getElementById('recoveryPanel')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'recoveryPanel';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;z-index:970;font-family:"Space Mono",monospace';
+
+    overlay.innerHTML =
+      '<div style="background:#0d1b2a;border:1px solid rgba(120,200,255,.25);border-radius:10px;padding:32px 28px;max-width:380px;width:92%;color:#e8f4ff;position:relative">'
+      + '<button id="recoveryClose" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#7eb8d8;font-size:18px;cursor:pointer;line-height:1">✕</button>'
+      + '<div style="font-size:13px;letter-spacing:2px;color:#00c951;margin-bottom:6px">🔧 RECOVERY PANEL</div>'
+      + '<div style="font-size:10px;color:#7eb8d8;margin-bottom:24px;letter-spacing:.5px">Recover pending matches or prizes</div>'
+
+      // Section 1 — Pending match
+      + '<div style="border:1px solid rgba(120,200,255,.15);border-radius:7px;padding:16px;margin-bottom:16px">'
+      + '<div style="font-size:11px;letter-spacing:1px;margin-bottom:12px;color:#c8e8f8">PENDING MATCH</div>'
+      + '<button id="recBtnMatch" style="width:100%;background:rgba(120,200,255,.1);border:1px solid rgba(120,200,255,.3);color:#c8e8f8;font-family:inherit;font-size:10px;letter-spacing:1px;padding:9px 0;border-radius:5px;cursor:pointer">🔍 Find Pending Match</button>'
+      + '<div id="recMatchResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
+      + '</div>'
+
+      // Section 2 — Pending prize
+      + '<div style="border:1px solid rgba(0,201,81,.15);border-radius:7px;padding:16px">'
+      + '<div style="font-size:11px;letter-spacing:1px;margin-bottom:12px;color:#c8e8f8">PENDING PRIZE</div>'
+      + '<button id="recBtnClaim" style="width:100%;background:rgba(0,201,81,.1);border:1px solid rgba(0,201,81,.3);color:#00c951;font-family:inherit;font-size:10px;letter-spacing:1px;padding:9px 0;border-radius:5px;cursor:pointer">💰 Claim Pending Prize</button>'
+      + '<div id="recClaimResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
+      + '</div>'
+      + '</div>';
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('recoveryClose').onclick = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    const _w = window.PengPoolWeb3;
+    const addr = _w?.getAddress?.();
+
+    // No wallet connected
+    if (!addr) {
+      document.getElementById('recMatchResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
+      document.getElementById('recClaimResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
+      document.getElementById('recBtnMatch').disabled = true;
+      document.getElementById('recBtnClaim').disabled = true;
+      return;
+    }
+
+    // Find pending match
+    document.getElementById('recBtnMatch').onclick = async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Searching…';
+      const resultEl = document.getElementById('recMatchResult');
+      resultEl.innerHTML = '';
+      try {
+        const resp = await fetch(HTTP_URL + '/api/pending-match/' + addr.toLowerCase());
+        const data = await resp.json();
+        if (data.found) {
+          const opponent = data.opponentAlias || shortenAddr(data.opponentAddr || '');
+          resultEl.innerHTML =
+            '<div style="color:#00c951;margin-bottom:8px">✅ Match found</div>'
+            + '<div>Game <b>#' + data.matchId + '</b> · Opponent: <b>' + opponent + '</b> · $' + data.betUSD + '</div>'
+            + '<button id="recBtnRejoin" style="margin-top:10px;width:100%;background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:10px;letter-spacing:1px;padding:8px 0;border-radius:5px;cursor:pointer">REJOIN</button>';
+          document.getElementById('recBtnRejoin').onclick = () => {
+            overlay.remove();
+            currentGameId = data.matchId;
+            myPlayerNum = data.playerNum;
+            gameMode = 'multiplayer';
+            show('game');
+            _showWaitingOverlay();
+            _connectWS(data.matchId, data.playerNum, addr);
+          };
+        } else {
+          resultEl.innerHTML = '<span style="color:#7eb8d8">No pending match found.</span>';
+        }
+      } catch(e) {
+        resultEl.innerHTML = '<span style="color:#ff6b6b">Search error: ' + e.message + '</span>';
+      }
+      btn.disabled = false;
+      btn.textContent = '🔍 Find Pending Match';
+    };
+
+    // Claim pending prize
+    document.getElementById('recBtnClaim').onclick = async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Searching…';
+      const resultEl = document.getElementById('recClaimResult');
+      resultEl.innerHTML = '';
+      try {
+        const resp = await fetch(HTTP_URL + '/api/pending-claim/' + addr.toLowerCase());
+        const data = await resp.json();
+        if (data.found) {
+          resultEl.innerHTML = '<div style="color:#00c951;margin-bottom:10px">✅ ' + data.claims.length + ' pending prize' + (data.claims.length > 1 ? 's' : '') + ' found</div>';
+          data.claims.forEach(function(claim) {
+            const rowId = 'recClaimRow_' + claim.matchId;
+            const row = document.createElement('div');
+            row.id = rowId;
+            row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid rgba(120,200,255,.1);font-size:10px;';
+            row.innerHTML =
+              '<span>Match <b>#' + claim.matchId + '</b> · Bet: <b>$' + claim.betUSD + '</b></span>'
+              + '<button style="background:rgba(0,201,81,.15);border:1px solid rgba(0,201,81,.4);color:#00c951;font-family:inherit;font-size:10px;letter-spacing:1px;padding:5px 12px;border-radius:5px;cursor:pointer;white-space:nowrap">CLAIM</button>';
+            resultEl.appendChild(row);
+
+            row.querySelector('button').onclick = async function() {
+              const claimBtn = this;
+              claimBtn.disabled = true;
+              claimBtn.textContent = 'Processing…';
+              try {
+                await _w.claimWinnings(claim.matchId);
+                row.innerHTML = '<span style="color:#00c951">Match <b>#' + claim.matchId + '</b> · ✅ Claimed</span>';
+                fetch(HTTP_URL + '/api/pending-claim/' + addr.toLowerCase(), {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ matchId: claim.matchId })
+                }).catch(e => console.warn('[recovery] DELETE pending-claim failed:', e.message));
+              } catch(err) {
+                row.querySelector('span').innerHTML = 'Match <b>#' + claim.matchId + '</b> · <span style="color:#ff6b6b">❌ Failed</span>';
+                claimBtn.disabled = false;
+                claimBtn.textContent = 'CLAIM';
+              }
+            };
+          });
+        } else {
+          resultEl.innerHTML = '<span style="color:#7eb8d8">No pending prizes found.</span>';
+        }
+      } catch(e) {
+        resultEl.innerHTML = '<span style="color:#ff6b6b">Search error: ' + e.message + '</span>';
+      }
+      btn.disabled = false;
+      btn.textContent = '💰 Claim Pending Prize';
+    };
+  }
 })();
 
 // ── LEADERBOARD ──────────────────────────────────────────────────────────────
