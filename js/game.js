@@ -84,12 +84,6 @@ const ballSprites = {};
       tmp.height = img.naturalHeight;
       const ctx = tmp.getContext("2d");
       ctx.drawImage(img, 0, 0);
-      const imgd = ctx.getImageData(0, 0, tmp.width, tmp.height);
-      const d = imgd.data;
-      for (let i = 0; i < d.length; i += 4) {
-        if (d[i] < 40 && d[i + 1] < 40 && d[i + 2] < 40) d[i + 3] = 0;
-      }
-      ctx.putImageData(imgd, 0, 0);
       ballSprites[id] = tmp;
     };
     img.src = src;
