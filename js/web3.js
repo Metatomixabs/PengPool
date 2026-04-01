@@ -377,6 +377,63 @@
         });
       }).catch(err => { _fail("getDeposit", err); });
     },
+    // registerTournament(chainTournamentId, buyInUSD) — pay buy-in to enter a tournament
+    registerTournament: function(chainTournamentId, buyInUSD) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ADDRESS = "0x03F938697Ec69232426a5B82187Ef2c7BF561dEF";
+      var TOURNAMENT_ABI = [
+        { name: "buyInAmountWei", type: "function", stateMutability: "view",
+          inputs: [{ name: "usdAmount", type: "uint256" }], outputs: [{ name: "", type: "uint256" }] },
+        { name: "registerPlayer", type: "function", stateMutability: "payable",
+          inputs: [{ name: "tournamentId", type: "uint256" }], outputs: [] },
+      ];
+      var bufferedWei = null;
+      return _ensurePub().then(function(pub) {
+        return pub.readContract({
+          address: TOURNAMENT_ADDRESS, abi: TOURNAMENT_ABI,
+          functionName: "buyInAmountWei", args: [BigInt(buyInUSD)],
+        });
+      }).then(function(weiAmount) {
+        bufferedWei = weiAmount * 101n / 100n;
+        return _abs.writeContract({
+          address: TOURNAMENT_ADDRESS, abi: TOURNAMENT_ABI,
+          functionName: "registerPlayer",
+          args: [BigInt(chainTournamentId)],
+          value: bufferedWei,
+        });
+      }).then(function(tx) {
+        console.log("[PengPool] registerTournament tx:", tx);
+        var httpUrl = window.location.hostname === 'localhost'
+          ? 'http://localhost:8080'
+          : 'https://pengpool-production.up.railway.app';
+        fetch(httpUrl + '/api/tournament/register-participant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tournamentId: chainTournamentId,
+            playerAddr: _agw,
+            ethAmount: bufferedWei.toString(),
+          }),
+        }).catch(function(e) { console.warn('[tournament] register-participant notify failed:', e.message); });
+        return tx;
+      }).catch(function(err) { _fail("registerTournament", err); });
+    },
+    // claimTournamentPrize(chainTournamentId) — claim prize after tournament finishes
+    claimTournamentPrize: function(chainTournamentId) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ADDRESS = "0x03F938697Ec69232426a5B82187Ef2c7BF561dEF";
+      var TOURNAMENT_ABI = [
+        { name: "claimPrize", type: "function", stateMutability: "nonpayable",
+          inputs: [{ name: "tournamentId", type: "uint256" }], outputs: [] },
+      ];
+      return _abs.writeContract({
+        address: TOURNAMENT_ADDRESS, abi: TOURNAMENT_ABI,
+        functionName: "claimPrize",
+        args: [BigInt(chainTournamentId)],
+      }).then(function(tx) {
+        console.log("[PengPool] claimTournamentPrize tx:", tx); return tx;
+      }).catch(function(err) { _fail("claimTournamentPrize", err); });
+    },
     getAddress:     function () { return _agw; },
     getEOA:         function () { return _eoa; },
     isConnected:    function () { return _abs !== null; },

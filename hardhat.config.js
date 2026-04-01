@@ -14,7 +14,13 @@ const isValidKey = typeof PRIVATE_KEY === "string" && /^(0x)?[0-9a-fA-F]{64}$/.t
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      viaIR: true,
+      optimizer: { enabled: true, runs: 200 },
+    },
+  },
 
   networks: {
     hardhat: {},

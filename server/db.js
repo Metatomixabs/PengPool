@@ -216,4 +216,4 @@ async function getLeaderboard(wallet) {
   return { top, caller };
 }
 
-module.exports = { init, getPlayer, registerPlayer, renamePlayer, recordGameResult, getLeaderboard };
+module.exports = { pool, init, getPlayer, registerPlayer, renamePlayer, recordGameResult, getLeaderboard };

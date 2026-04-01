@@ -45,6 +45,7 @@
         <button class="btn-o" id="btnLeaderboard">🏆 LEADERBOARD</button>
         <button class="btn-o" id="btnRulesLobby">RULES</button>
         <button class="btn-o" id="btnRecovery">🔧 Recovery</button>
+        <button class="btn-o" id="btnTournament">🏆 TOURNAMENT</button>
       </div>
     </div>
     <div class="hr">
@@ -57,7 +58,7 @@
     <div class="mgrid">
       <div class="mcard featured" id="cWager"><div class="micon">⚔️</div><div class="mname">1v1 Wager</div><div class="mdesc">Set your bet. Smart contract holds pot — winner takes all minus project commission.</div><div class="mtags"><span class="tag">ETH</span><span class="tag">ESCROW</span></div></div>
       <div class="mcard" id="cPractice"><div class="micon">🎯</div><div class="mname">Practice</div><div class="mdesc">Sharpen your skills with no stakes before going for real money.</div><div class="mtags"><span class="tag">FREE</span><span class="tag">OFFLINE</span></div></div>
-      <div class="mcard dim"><div class="micon">🏆</div><div class="mname">Tournament</div><div class="mdesc">Bracket-style with pooled prizes. Entry fee goes into the pot.</div><div class="mtags"><span class="tag">SOON</span></div></div>
+      <div class="mcard" id="cTournament"><div class="micon">🏆</div><div class="mname">Tournament</div><div class="mdesc">Bracket-style with pooled prizes. Entry fee goes into the pot.</div><div class="mtags"><span class="tag">ETH</span><span class="tag">BRACKET</span></div></div>
     </div>
     </div>
   </div>
@@ -119,6 +120,84 @@
   </div>
   <p class="mm-wait-msg">Setting up the game on-chain…</p>
   <div class="mm-spinner"></div>
+</div>
+
+<!-- ── TOURNAMENT LOBBY ──────────────────────────────────────── -->
+<div id="tournamentLobby" class="screen hidden">
+  <div class="mm-header">
+    <img src="assets/logo/pengpool_mascot.png" class="mm-mascot" alt="PengPool">
+    <h2 class="mm-title">TOURNAMENTS</h2>
+  </div>
+  <div class="t-tabs">
+    <button class="t-tab active" id="tTabOpen"     onclick="_tShowTab('open')">Open</button>
+    <button class="t-tab"        id="tTabActive"   onclick="_tShowTab('active')">Active</button>
+    <button class="t-tab"        id="tTabFinished" onclick="_tShowTab('finished')">Finished</button>
+  </div>
+  <div class="t-list" id="tList"><div class="level-loading">Loading…</div></div>
+  <div class="t-form" id="tForm" style="display:none">
+    <div class="t-form-title">CREATE TOURNAMENT</div>
+    <input class="t-form-input" id="tFormName" type="text" maxlength="50" placeholder="Tournament name…">
+    <div class="t-form-row">
+      <label class="t-form-label">Buy-in</label>
+      <select class="t-form-select" id="tFormBuyIn">
+        <option value="1">$1</option>
+        <option value="2">$2</option>
+        <option value="5">$5</option>
+      </select>
+    </div>
+    <div class="t-form-row">
+      <label class="t-form-label">Start time</label>
+      <input class="t-form-input" id="tFormStart" type="datetime-local">
+    </div>
+    <button class="btn-g t-form-btn" id="tFormSubmit">CREATE</button>
+  </div>
+  <div class="mm-note" style="margin-top:14px;display:flex;gap:10px;justify-content:center">
+    <button class="btn-o" id="tBtnCreate" style="font-size:11px;padding:7px 18px">+ Create Custom</button>
+    <button class="btn-o" id="tBtnLobby"  style="font-size:11px;padding:7px 18px">← Back</button>
+  </div>
+</div>
+
+<!-- ── TOURNAMENT DETAIL ─────────────────────────────────────── -->
+<div id="tournamentDetail" class="screen hidden">
+  <div class="mm-header">
+    <img src="assets/logo/pengpool_mascot.png" class="mm-mascot" alt="PengPool">
+    <h2 class="mm-title" id="tDetailName">TOURNAMENT</h2>
+  </div>
+  <div class="t-detail-meta" id="tDetailMeta"></div>
+  <div class="t-bracket" id="tBracket"></div>
+  <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+    <button class="btn-g" id="tBtnRegister" style="font-size:12px;padding:9px 22px">REGISTER</button>
+    <button class="btn-o" id="tBtnBack"     style="font-size:11px;padding:9px 18px">← BACK</button>
+  </div>
+</div>
+
+<!-- ── TOURNAMENT MATCH MODAL ───────────────────────────────── -->
+<div class="mover" id="tMatchModal">
+  <div class="mbox" style="max-width:360px">
+    <div class="mtitle" style="font-size:15px">TOURNAMENT MATCH</div>
+    <div class="msub" id="tMatchSub" style="margin:8px 0 16px">Round <span id="tMatchRound">—</span></div>
+    <div class="pbox">
+      <div class="prow"><span class="pl">Opponent</span><span class="pv" id="tMatchOpponent">—</span></div>
+      <div class="prow"><span class="pl">Tournament</span><span class="pv" id="tMatchTname">—</span></div>
+    </div>
+    <div class="mbtns"><button class="btn-g" id="tBtnJoin">JOIN MATCH</button></div>
+  </div>
+</div>
+
+<!-- ── TOURNAMENT PRIZE MODAL ───────────────────────────────── -->
+<div class="mover" id="tPrizeModal">
+  <div class="mbox" style="max-width:360px">
+    <div><img src="assets/logo/pengpool_mascot.png" width="80" height="86" style="margin:0 auto 8px;display:block"></div>
+    <div class="mtitle">PRIZE AVAILABLE!</div>
+    <div class="msub" id="tPrizeSub">Tournament finished</div>
+    <div class="pbox">
+      <div class="prow win"><span class="pl">Your prize</span><span class="pv" id="tPrizeAmount">—</span></div>
+    </div>
+    <div class="mbtns">
+      <button class="btn-g" id="tBtnClaim">CLAIM PRIZE</button>
+      <button class="btn-o" id="tBtnPrizeLater">Later</button>
+    </div>
+  </div>
 </div>
 
 <!-- GAME — always rendered, just hidden visually -->

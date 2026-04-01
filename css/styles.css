@@ -2235,3 +2235,76 @@ canvas {
 .mm-search-modal .mm-search-label { font-size:1rem; color:#888; }
 .mm-search-modal .mm-search-val   { font-family:'Orbitron',sans-serif; font-size:1.05rem; color:var(--g); }
 .mm-search-modal .mm-cancel-btn   { align-self:center; padding:13px 40px; margin-top:8px; font-size:.95rem; }
+
+/* ══════════════════════════════════════════════════════════
+   TOURNAMENT UI
+   ══════════════════════════════════════════════════════════ */
+#tournamentLobby,
+#tournamentDetail {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--bg);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+.t-tabs        { display:flex; gap:8px; justify-content:center; margin-bottom:18px; }
+.t-tab         { padding:7px 22px; border-radius:20px; border:1px solid rgba(120,200,255,.25);
+                 background:transparent; color:#7eb8d8; font-family:'Space Mono',monospace;
+                 font-size:.72rem; letter-spacing:1px; cursor:pointer; transition:all .15s; }
+.t-tab:hover   { background:rgba(120,200,255,.1); }
+.t-tab.active  { background:rgba(0,201,81,.15); border-color:rgba(0,201,81,.5); color:var(--g); }
+
+.t-list        { width:100%; max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:10px; min-height:60px; }
+
+.t-card        { background:rgba(255,255,255,.04); border:1px solid rgba(120,200,255,.15);
+                 border-radius:10px; padding:14px 18px; cursor:pointer; transition:border-color .15s; }
+.t-card:hover  { border-color:rgba(0,201,81,.4); }
+.t-card-name   { font-family:'Space Mono',monospace; font-size:.85rem; color:#e8f4ff; margin-bottom:5px; }
+.t-card-meta   { font-size:.75rem; color:#7eb8d8; margin-bottom:6px; }
+.t-card-status { font-family:'Space Mono',monospace; font-size:.65rem; letter-spacing:1px; }
+
+.t-status-registration { color:#f0c040; }
+.t-status-active       { color:var(--g); }
+.t-status-finished     { color:#888; }
+.t-status-cancelled    { color:#ff6b6b; }
+
+.t-form           { width:100%; max-width:400px; margin:16px auto 0;
+                    background:rgba(0,0,0,.3); border:1px solid rgba(120,200,255,.2);
+                    border-radius:10px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+.t-form-title     { font-family:'Space Mono',monospace; font-size:.8rem; letter-spacing:2px; color:#c8e8f8; }
+.t-form-input     { background:rgba(255,255,255,.05); border:1px solid rgba(120,200,255,.2);
+                    border-radius:6px; color:#e8f4ff; font-family:'Space Mono',monospace;
+                    font-size:.8rem; padding:8px 12px; outline:none; width:100%; box-sizing:border-box; }
+.t-form-input:focus { border-color:rgba(0,201,81,.5); }
+.t-form-row       { display:flex; align-items:center; gap:12px; }
+.t-form-label     { font-size:.72rem; color:#7eb8d8; white-space:nowrap; min-width:70px; }
+.t-form-select    { background:rgba(255,255,255,.05); border:1px solid rgba(120,200,255,.2);
+                    border-radius:6px; color:#e8f4ff; font-family:'Space Mono',monospace;
+                    font-size:.8rem; padding:7px 10px; outline:none; flex:1; }
+.t-form-btn       { align-self:flex-end; }
+
+.t-detail-meta    { display:flex; flex-wrap:wrap; gap:8px 20px; justify-content:center;
+                    max-width:480px; margin:0 auto 18px; }
+.t-detail-row     { display:flex; gap:8px; font-size:.8rem; }
+.t-detail-row span { color:#7eb8d8; }
+.t-detail-row b   { color:#e8f4ff; }
+
+.t-bracket        { width:100%; max-width:640px; margin:0 auto; display:flex; gap:16px;
+                    overflow-x:auto; padding-bottom:8px; }
+.t-round          { display:flex; flex-direction:column; gap:8px; min-width:180px; flex-shrink:0; }
+.t-round-label    { font-family:'Space Mono',monospace; font-size:.65rem; letter-spacing:2px;
+                    color:#555; text-align:center; margin-bottom:4px; }
+.t-match          { background:rgba(255,255,255,.04); border:1px solid rgba(120,200,255,.12);
+                    border-radius:8px; padding:8px 12px; display:flex; flex-wrap:wrap;
+                    align-items:center; gap:4px; font-family:'Space Mono',monospace; font-size:.72rem; color:#bbb; }
+.t-match-active   { border-color:rgba(0,201,81,.4); }
+.t-match-finished { border-color:rgba(120,200,255,.2); opacity:.8; }
+.t-match-vs       { color:#444; font-size:.65rem; }
+.t-match-result   { width:100%; font-size:.65rem; color:var(--g); margin-top:2px; }
+.t-winner         { color:var(--g); font-weight:700; }

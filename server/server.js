@@ -15,6 +15,8 @@
 
 require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 
+const tournament = require("./tournament");
+
 const http      = require("http");
 const WebSocket = require("ws");
 const { ethers } = require("ethers");
@@ -43,6 +45,19 @@ function _getContract() {
   _contract = new ethers.Contract(PENGPOOL_ADDRESS, DECLARE_ABI, wallet);
   console.log(`[settle] Wallet ready: ${wallet.address}`);
   return _contract;
+}
+
+let _wallet   = null;
+let _provider = null;
+
+function _getWalletAndProvider() {
+  if (_wallet && _provider) return { wallet: _wallet, provider: _provider };
+  const key = process.env.PRIVATE_KEY;
+  const rpc = process.env.RPC_URL || "https://api.testnet.abs.xyz";
+  if (!key) { console.warn("[wallet] PRIVATE_KEY not set — tournament module disabled"); return null; }
+  _provider = new ethers.JsonRpcProvider(rpc);
+  _wallet   = new ethers.Wallet(key, _provider);
+  return { wallet: _wallet, provider: _provider };
 }
 
 // gameIds already settled or in-progress — avoid double-settling
@@ -438,6 +453,14 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // Tournament routes
+    for (const route of tournament.httpRoutes) {
+      if (route.match(req.method, req.url)) {
+        await route.handler(req, res);
+        return;
+      }
+    }
+
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("PengPool sync OK\n");
 
@@ -449,6 +472,12 @@ const httpServer = http.createServer(async (req, res) => {
 });
 
 const wss = new WebSocket.Server({ server: httpServer });
+
+// Init tournament module
+const _wp = _getWalletAndProvider();
+if (_wp) {
+  tournament.initTournament(wss, db.pool, _wp.wallet, _wp.provider, rooms);
+}
 
 wss.on("connection", (ws) => {
   ws._gameId    = null;
@@ -514,6 +543,14 @@ wss.on("connection", (ws) => {
       const gameId = String(msg.gameId);
       const addr   = (msg.addr || "").toLowerCase();
 
+      // Notification-only socket — just register addr for tournament WS pushes
+      if (gameId.startsWith('notif_')) {
+        ws._addr = addr;
+        ws._alias = msg.alias || '';
+        console.log(`[notif] registered notification socket for ${addr.slice(0,8)}…`);
+        return;
+      }
+
       // ── Reconnection: wallet already belongs to this room ─────────────
       if (rooms.has(gameId)) {
         const room = rooms.get(gameId);
@@ -521,6 +558,10 @@ wss.on("connection", (ws) => {
                    : room.p2addr?.toLowerCase() === addr ? 2
                    : null;
         if (pNum !== null) {
+          // Tournament room first join — treat as fresh connect, not reconnect
+          if (room.isTournament && !room.gameState) {
+            // Fall through to normal join flow below
+          } else {
           // Cancel pending disconnect timer
           const timerKey = `p${pNum}timer`;
           const cdKey    = `p${pNum}cd`;
@@ -567,6 +608,7 @@ wss.on("connection", (ws) => {
           _send(ws,    { type: "opponent_reconnected" });
           _send(other, { type: "opponent_reconnected" });
           return;
+          } // end tournament fresh-join bypass
         }
       }
 
@@ -609,22 +651,35 @@ wss.on("connection", (ws) => {
       }
 
       ws._gameId    = gameId;
-      ws._playerNum = msg.playerNum; // 1 or 2
       ws._addr      = msg.addr || "";
       ws._alias     = msg.alias || "";
 
       if (!rooms.has(gameId)) rooms.set(gameId, {});
       const room = rooms.get(gameId);
 
-      room[`p${msg.playerNum}`]      = ws;
-      room[`p${msg.playerNum}addr`]  = ws._addr;
-      room[`p${msg.playerNum}alias`] = ws._alias;
+      // For tournament rooms, determine playerNum from pre-assigned addresses
+      if (room && room.isTournament) {
+        const addrLower = ws._addr.toLowerCase();
+        if (room.p1addr && room.p1addr.toLowerCase() === addrLower) {
+          ws._playerNum = 1;
+        } else if (room.p2addr && room.p2addr.toLowerCase() === addrLower) {
+          ws._playerNum = 2;
+        } else {
+          ws._playerNum = msg.playerNum;
+        }
+      } else {
+        ws._playerNum = msg.playerNum;
+      }
+
+      room[`p${ws._playerNum}`]      = ws;
+      room[`p${ws._playerNum}addr`]  = ws._addr;
+      room[`p${ws._playerNum}alias`] = ws._alias;
 
       if (msg.betUSD)  room.betUSD  = String(msg.betUSD);
       if (msg.matchId) room.matchId = msg.matchId;
       if (msg.gameId)  room.matchId = room.matchId || String(msg.gameId);
       if (ws._alias) aliases.set(ws._addr.toLowerCase(), ws._alias);
-      console.log(`[room ${gameId}] P${msg.playerNum} joined (${ws._addr.slice(0,8)}…)`);
+      console.log(`[room ${gameId}] P${ws._playerNum} joined (${ws._addr.slice(0,8)}…)`);
       console.log(`[room ${gameId}] state after join: p1=${room.p1?'CONNECTED':'null'} p2=${room.p2?'CONNECTED':'null'}`);
 
       // If both players present, notify both
@@ -632,8 +687,8 @@ wss.on("connection", (ws) => {
         console.log(`[room ${gameId}] Both players ready — sending ready`);
         pendingMatches.delete(room.p1addr?.toLowerCase());
         pendingMatches.delete(room.p2addr?.toLowerCase());
-        const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentAlias: room.p2alias, opponentNum: 2 });
-        const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentAlias: room.p1alias, opponentNum: 1 });
+        const r1ok = _send(room.p1, { type: "ready", opponentAddr: room.p2addr, opponentAlias: room.p2alias, opponentNum: 2, yourPlayerNum: 1 });
+        const r2ok = _send(room.p2, { type: "ready", opponentAddr: room.p1addr, opponentAlias: room.p1alias, opponentNum: 1, yourPlayerNum: 2 });
         console.log(`[room ${gameId}] ready sent to P1=${r1ok} P2=${r2ok}`);
       } else {
         console.log(`[room ${gameId}] waiting for ${room.p1 ? 'P2' : 'P1'}…`);
@@ -659,8 +714,12 @@ wss.on("connection", (ws) => {
       pendingMatches.delete(room.p1addr?.toLowerCase());
       pendingMatches.delete(room.p2addr?.toLowerCase());
       if (_leaveWinAddr && _leaveWinAddr !== ZERO) {
-        room.winnerNum = winnerNum;
-        _settle(ws._gameId, _leaveWinAddr, room);
+        if (room.isTournament) {
+          tournament.handleMatchResult(ws._gameId, _leaveWinAddr, _leaveLoserAddr);
+        } else {
+          room.winnerNum = winnerNum;
+          _settle(ws._gameId, _leaveWinAddr, room);
+        }
       }
       // close() will still fire; _leaving=true prevents double settle (via _settling Set)
     }
@@ -785,6 +844,13 @@ wss.on("connection", (ws) => {
         console.warn(`[settle] game ${ws._gameId}: no address for winner P${msg.winnerNum}`);
         return;
       }
+
+      // Tournament rooms: route to tournament handler, skip PvP settlement
+      if (room.isTournament) {
+        tournament.handleMatchResult(ws._gameId, winnerAddr, loserAddr);
+        return;
+      }
+
       room.winnerNum = msg.winnerNum;
       _settle(ws._gameId, winnerAddr, room);
     }
@@ -852,7 +918,14 @@ wss.on("connection", (ws) => {
         db.recordGameResult(_toWinAddr, true).catch(e => console.error(`[db] timeout winner:`, e.message));
       if (_toLoseAddr && _toLoseAddr !== ZERO)
         db.recordGameResult(_toLoseAddr, false).catch(e => console.error(`[db] timeout loser:`, e.message));
-      if (_toWinAddr && _toWinAddr !== ZERO) { room.winnerNum = winnerNum; _settle(ws._gameId, _toWinAddr, room); }
+      if (_toWinAddr && _toWinAddr !== ZERO) {
+        if (room.isTournament) {
+          tournament.handleMatchResult(ws._gameId, _toWinAddr, _toLoseAddr);
+          rooms.delete(ws._gameId);
+          return;
+        }
+        room.winnerNum = winnerNum; _settle(ws._gameId, _toWinAddr, room);
+      }
       rooms.delete(ws._gameId);
     }, TIMEOUT_SEC * 1000);
   });

@@ -26,6 +26,52 @@ let _mmElapsed = 0;
 let _mmRange = 5;
 let _mmOpponentAlias = '';
 let _mmOpponentAddr  = '';
+let _notifWs = null;
+
+function _connectNotifWs(addr) {
+  if (_notifWs && _notifWs.readyState === WebSocket.OPEN) return;
+  if (_notifWs) { try { _notifWs.close(); } catch(_){} }
+  _notifWs = new WebSocket(WS_URL);
+  _notifWs.onopen = () => {
+    _notifWs.send(JSON.stringify({
+      type: 'join',
+      gameId: 'notif_' + addr.toLowerCase(),
+      playerNum: 0,
+      addr: addr,
+      alias: getStoredUsername(addr) || ''
+    }));
+    console.log('[notifWs] connected for', addr.slice(0,8));
+  };
+  _notifWs.onmessage = (evt) => {
+    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === 'tournament_match_ready')        _tOnMatchReady(msg);
+    else if (msg.type === 'tournament_prize_available') _tOnPrizeAvailable(msg);
+    else if (msg.type === 'tournament_player_timeout') {
+      const myAddr = window.PengPoolWeb3?.getAddress?.()?.toLowerCase();
+      if (myAddr && msg.disqualifiedAddr?.toLowerCase() === myAddr) {
+        toast('You were disqualified — did not join your match in time.', 1);
+      } else {
+        toast('Opponent did not join — you advance! 🏆', 0);
+      }
+    }
+    else if (msg.type === 'tournament_finished') _tOnFinished(msg);
+  };
+  _notifWs.onerror = () => console.warn('[notifWs] error');
+  _notifWs.onclose = () => {
+    _notifWs = null;
+    setTimeout(() => {
+      const w = window.PengPoolWeb3;
+      if (w && w.isConnected()) _connectNotifWs(w.getAddress());
+    }, 5000);
+  };
+}
+
+// ── Tournament state ───────────────────────────────────────────
+let _tCurrentTab    = 'open';
+let _tDetailId      = null;
+let _tDetailData    = null;
+let _tRefreshTimer  = null;
+let _tPendingChainId = null;
 
 // ═══════════════════════════
 // AUDIO CONTEXT UNLOCK
@@ -328,6 +374,10 @@ function _wsOnMessage(msg) {
   const G = window.PengPoolGame;
   if (msg.type === 'ready') {
     console.log('Ready received, opponentAlias:', msg.opponentAlias);
+    if (msg.yourPlayerNum) {
+      myPlayerNum = msg.yourPlayerNum;
+      console.log('[WS] playerNum corrected to', myPlayerNum);
+    }
     _hideWaitingOverlay();
     _startMatchCountdown(msg.opponentAddr, msg.opponentAlias || '');
   }
@@ -519,6 +569,234 @@ function _wsOnMessage(msg) {
       // Return to matchmaking so the player sees their existing game
       if (typeof show === 'function') { stopMusic(); _resetGS(); show('matchmaking'); _mmStart(); }
     }
+  }
+  else if (msg.type === 'tournament_match_ready') { _tOnMatchReady(msg); }
+  else if (msg.type === 'tournament_player_timeout') {
+    const myAddr = window.PengPoolWeb3?.getAddress?.()?.toLowerCase();
+    if (myAddr && msg.disqualifiedAddr?.toLowerCase() === myAddr) {
+      toast('You were disqualified — did not join your match in time.', 1);
+    } else {
+      toast('Opponent did not join — you advance! 🏆', 0);
+    }
+  }
+  else if (msg.type === 'tournament_finished')       { _tOnFinished(msg); }
+  else if (msg.type === 'tournament_prize_available'){ _tOnPrizeAvailable(msg); }
+}
+
+// ═══════════════════════════════════════════════════════
+// TOURNAMENT UI
+// ═══════════════════════════════════════════════════════
+
+function _tShowTab(tab) {
+  _tCurrentTab = tab;
+  ['open','active','finished'].forEach(t => {
+    const el = document.getElementById('tTab' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.classList.toggle('active', t === tab);
+  });
+  _tLoadList();
+}
+
+async function _tLoadList() {
+  const list = document.getElementById('tList');
+  if (!list) return;
+  list.innerHTML = '<div class="level-loading">Loading…</div>';
+  try {
+    const statusMap = { open: 'registration', active: 'active', finished: 'finished' };
+    const res = await fetch(HTTP_URL + '/api/tournaments');
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      list.innerHTML = '<div class="level-noconn">No tournaments found.</div>';
+      return;
+    }
+    list.innerHTML = data.map(t => {
+      const start = new Date(t.start_time).toLocaleString();
+      return `<div class="t-card" onclick="_tOpenDetail(${t.id})">
+        <div class="t-card-name">${t.name}</div>
+        <div class="t-card-meta">Buy-in: <b>$${t.buy_in_usd}</b> · ${t.participant_count} players · ${start}</div>
+        <div class="t-card-status t-status-${t.status}">${t.status.toUpperCase()}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>';
+  }
+}
+
+async function _tOpenDetail(tId) {
+  _tDetailId = tId;
+  clearInterval(_tRefreshTimer);
+  show('tournamentDetail');
+  document.getElementById('tDetailName').textContent = 'TOURNAMENT';
+  document.getElementById('tDetailMeta').innerHTML = '<div class="level-loading">Loading…</div>';
+  document.getElementById('tBracket').innerHTML = '';
+  await _tRefreshDetail();
+  _tRefreshTimer = setInterval(_tRefreshDetail, 10000);
+}
+window._tOpenDetail = _tOpenDetail;
+
+async function _tRefreshDetail() {
+  if (!_tDetailId) return;
+  try {
+    const res = await fetch(HTTP_URL + '/api/tournament/' + _tDetailId);
+    _tDetailData = await res.json();
+    _tRenderDetail(_tDetailData);
+  } catch(e) {
+    console.warn('[tournament] detail fetch failed:', e.message);
+  }
+}
+
+function _tRenderDetail(t) {
+  const nameEl = document.getElementById('tDetailName');
+  if (nameEl) nameEl.textContent = (t.name || 'TOURNAMENT').toUpperCase();
+
+  const metaEl = document.getElementById('tDetailMeta');
+  if (metaEl) {
+    const start = new Date(t.start_time).toLocaleString();
+    const pool  = t.prize_pool_eth ? Number(t.prize_pool_eth).toFixed(6) + ' ETH' : '—';
+    metaEl.innerHTML = `
+      <div class="t-detail-row"><span>Buy-in</span><b>$${t.buy_in_usd}</b></div>
+      <div class="t-detail-row"><span>Players</span><b>${t.participant_count}</b></div>
+      <div class="t-detail-row"><span>Prize pool</span><b>${pool}</b></div>
+      <div class="t-detail-row"><span>Start</span><b>${start}</b></div>
+      <div class="t-detail-row"><span>Status</span><b class="t-status-${t.status}">${t.status.toUpperCase()}</b></div>`;
+  }
+
+  const bracketEl = document.getElementById('tBracket');
+  if (bracketEl) {
+    if (t.matches && t.matches.length > 0) {
+      const rounds = {};
+      t.matches.forEach(m => { if (!rounds[m.round]) rounds[m.round] = []; rounds[m.round].push(m); });
+      bracketEl.innerHTML = Object.keys(rounds).sort((a,b)=>a-b).map(r => {
+        const ms = rounds[r];
+        return `<div class="t-round">
+          <div class="t-round-label">Round ${r}</div>
+          ${ms.map(m => {
+            const p1 = m.player1_alias || shortenAddr(m.player1_addr || '') || 'TBD';
+            const p2 = m.is_bye ? 'BYE' : (m.player2_alias || shortenAddr(m.player2_addr || '') || 'TBD');
+            const w1 = m.winner_addr && m.winner_addr === m.player1_addr;
+            const w2 = m.winner_addr && m.winner_addr === m.player2_addr;
+            const winnerName = m.winner_addr ? (m.winner_alias || shortenAddr(m.winner_addr)) : '';
+            return `<div class="t-match t-match-${m.status}">
+              <span class="${w1?'t-winner':''}">${p1}</span>
+              <span class="t-match-vs">vs</span>
+              <span class="${w2?'t-winner':''}">${p2}</span>
+              ${winnerName ? `<span class="t-match-result">→ ${winnerName}</span>` : ''}
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('');
+    } else {
+      bracketEl.innerHTML = '<div class="level-noconn" style="padding:12px 0">Bracket not yet generated.</div>';
+    }
+  }
+
+  const btnReg = document.getElementById('tBtnRegister');
+  if (btnReg) {
+    const w = window.PengPoolWeb3;
+    const myAddr = w?.getAddress?.()?.toLowerCase();
+    const isRegistered = myAddr && t.participants && t.participants.some(p => p.player_addr.toLowerCase() === myAddr);
+    const canRegister  = t.status === 'registration';
+    btnReg.textContent = isRegistered ? 'REGISTERED ✓' : 'REGISTER';
+    btnReg.disabled    = isRegistered || !canRegister;
+  }
+}
+
+async function _tRegister() {
+  if (!_tDetailId || !_tDetailData) return;
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const btnReg = document.getElementById('tBtnRegister');
+  if (btnReg) { btnReg.disabled = true; btnReg.textContent = 'Registering…'; }
+  try {
+    await w.registerTournament(_tDetailData.chain_id, _tDetailData.buy_in_usd);
+    toast('Registered! You\'re in the tournament.');
+    await _tRefreshDetail();
+  } catch(e) {
+    toast('Registration failed: ' + (e?.message || '').replace('[PengPool] ',''), 1);
+    if (btnReg) { btnReg.disabled = false; btnReg.textContent = 'REGISTER'; }
+  }
+}
+
+function _tOnMatchReady(msg) {
+  const modal = document.getElementById('tMatchModal');
+  if (!modal) return;
+  document.getElementById('tMatchRound').textContent    = msg.round || '—';
+  document.getElementById('tMatchOpponent').textContent = msg.opponentAlias || shortenAddr(msg.opponentAddr || '');
+  document.getElementById('tMatchTname').textContent    = 'Tournament #' + msg.tournamentId;
+  const btn = document.getElementById('tBtnJoin');
+  btn.onclick = function() {
+    modal.classList.remove('on');
+    const w = window.PengPoolWeb3;
+    const addr = w?.getAddress?.() || '0x0';
+    currentGameId   = String(msg.roomId);
+    currentGameData = { betUSD: msg.buyInUSD || 0, betAmount: '0' };
+    myPlayerNum     = 1; // server corrects this via addr matching on join
+    gameMode        = 'multiplayer';
+    show('game');
+    _showWaitingOverlay();
+    _connectWS(msg.roomId, 1, addr);
+  };
+  modal.classList.add('on');
+}
+
+function _tOnFinished(msg) {
+  toast('Tournament #' + msg.tournamentId + ' has finished!', 0);
+  if (_tDetailId && String(_tDetailId) === String(msg.tournamentId)) _tRefreshDetail();
+}
+
+function _tOnPrizeAvailable(msg) {
+  _tPendingChainId = msg.tournamentId; // will be resolved to chain_id when claiming
+  const modal = document.getElementById('tPrizeModal');
+  if (!modal) return;
+  const prizeEth = msg.estimatedPrizeETH ? Number(msg.estimatedPrizeETH).toFixed(6) + ' ETH' : '—';
+  const prizeSub = document.getElementById('tPrizeSub');
+  const prizeAmt = document.getElementById('tPrizeAmount');
+  if (prizeAmt) prizeAmt.textContent = prizeEth;
+  if (prizeSub) prizeSub.textContent = 'Tournament #' + msg.tournamentId + ' · Position #' + msg.position;
+  modal.classList.add('on');
+}
+
+async function _tClaimPrize() {
+  if (_tPendingChainId == null) return;
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const btn = document.getElementById('tBtnClaim');
+  if (btn) { btn.disabled = true; btn.textContent = 'Claiming…'; }
+  try {
+    await w.claimTournamentPrize(_tPendingChainId);
+    toast('Prize claimed!');
+    document.getElementById('tPrizeModal').classList.remove('on');
+    _tPendingChainId = null;
+  } catch(e) {
+    toast('Claim failed: ' + (e?.message || '').replace('[PengPool] ',''), 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'CLAIM PRIZE'; }
+  }
+}
+
+async function _tSubmitCreate() {
+  const name    = document.getElementById('tFormName')?.value?.trim();
+  const buyIn   = Number(document.getElementById('tFormBuyIn')?.value);
+  const startStr = document.getElementById('tFormStart')?.value;
+  if (!name)    { toast('Enter a tournament name', 1); return; }
+  if (!startStr){ toast('Set a start time', 1); return; }
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const btn = document.getElementById('tFormSubmit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  try {
+    const startTimeUnix = Math.floor(new Date(startStr).getTime() / 1000);
+    const res = await fetch(HTTP_URL + '/api/tournament/create-custom', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creatorAddr: w.getAddress(), name, buyInUSD: buyIn, startTimeUnix }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    toast('Tournament created!');
+    document.getElementById('tForm').style.display = 'none';
+    _tShowTab('open');
+  } catch(e) {
+    toast('Create failed: ' + (e?.message || ''), 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'CREATE'; }
   }
 }
 
@@ -779,7 +1057,7 @@ function resetTurnTimer() {
 // ═══════════════════════════
 function show(id) {
   if (id !== 'game') stopTurnTimer();
-  ['intro','lobby','matchmaking','mmSearching','mmWaiting'].forEach(s => {
+  ['intro','lobby','matchmaking','mmSearching','mmWaiting','tournamentLobby','tournamentDetail'].forEach(s => {
     const el = document.getElementById(s); if (el) el.classList.add('hidden');
   });
   // Hide game screen only when navigating away from it
@@ -852,12 +1130,23 @@ function endGame(winner,reason){
     document.getElementById('pWinner').textContent='No wager';
   }
   if(gameMode==='multiplayer'&&currentGameId!==null){
-    document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Settling on-chain\u2026';
-    document.getElementById('modal').classList.add('on');
-    const iWon = (winner === myPlayerNum);
-    if (iWon) {
+    const isTournamentRoom = String(currentGameId).startsWith('t_');
+    if (isTournamentRoom) {
+      // Tournament match — no per-match settlement, prize comes at end of tournament
+      document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Tournament match complete. Prize distributed at tournament end.';
+      document.getElementById('modal').classList.add('on');
+      const btnClaim = document.getElementById('btnClaim');
+      if (btnClaim) btnClaim.style.display = 'none';
       const btnMlobby = document.getElementById('btnMlobby');
-      if (btnMlobby) { btnMlobby.disabled = true; btnMlobby.classList.add('btn-disabled'); }
+      if (btnMlobby) { btnMlobby.disabled = false; btnMlobby.classList.remove('btn-disabled'); }
+    } else {
+      document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Settling on-chain\u2026';
+      document.getElementById('modal').classList.add('on');
+      const iWon = (winner === myPlayerNum);
+      if (iWon) {
+        const btnMlobby = document.getElementById('btnMlobby');
+        if (btnMlobby) { btnMlobby.disabled = true; btnMlobby.classList.add('btn-disabled'); }
+      }
     }
   }else{
     document.getElementById('msub').innerHTML='<strong>'+reason+'</strong><br>Practice game \u2014 no wager.';
@@ -1093,6 +1382,40 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       btn.textContent = '💰 Claim Pending Prize';
     };
   }
+})();
+
+// ── TOURNAMENT BUTTONS ────────────────────────────────────────────────────────
+(function(){
+  document.getElementById('btnTournament').addEventListener('click', function() {
+    const w = window.PengPoolWeb3;
+    if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+    document.getElementById('tForm').style.display = 'none';
+    show('tournamentLobby');
+    _tShowTab('open');
+  });
+  document.getElementById('cTournament').addEventListener('click', function() {
+    document.getElementById('btnTournament').click();
+  });
+  document.getElementById('tBtnLobby').addEventListener('click', function() {
+    clearInterval(_tRefreshTimer); _tRefreshTimer = null;
+    show('lobby');
+  });
+  document.getElementById('tBtnCreate').addEventListener('click', function() {
+    const form = document.getElementById('tForm');
+    form.style.display = form.style.display === 'none' ? '' : 'none';
+  });
+  document.getElementById('tFormSubmit').addEventListener('click', _tSubmitCreate);
+  document.getElementById('tBtnBack').addEventListener('click', function() {
+    clearInterval(_tRefreshTimer); _tRefreshTimer = null;
+    _tDetailId = null; _tDetailData = null;
+    show('tournamentLobby');
+    _tLoadList();
+  });
+  document.getElementById('tBtnRegister').addEventListener('click', _tRegister);
+  document.getElementById('tBtnClaim').addEventListener('click', _tClaimPrize);
+  document.getElementById('tBtnPrizeLater').addEventListener('click', function() {
+    document.getElementById('tPrizeModal').classList.remove('on');
+  });
 })();
 
 // ── LEADERBOARD ──────────────────────────────────────────────────────────────
@@ -1371,6 +1694,7 @@ function _setWBtn(addr){
   const rb=document.getElementById('btnRename');if(rb)rb.style.display='';
   const name=getStoredUsername(addr);if(name)_registerAlias(addr,name);
   _checkRejoin(addr);
+  _connectNotifWs(addr);
 }
 
 async function _checkRejoin(addr){
