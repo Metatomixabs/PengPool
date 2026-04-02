@@ -878,6 +878,22 @@ const httpRoutes = [
     },
   },
 
+  // GET /api/tournaments/finished — finished tournaments for recovery panel
+  {
+    match: (method, url) => method === 'GET' && url === '/api/tournaments/finished',
+    handler: async (req, res) => {
+      const { rows } = await _pool.query(
+        `SELECT id, chain_id, name, type, buy_in_usd, start_time, status,
+                participant_count, prize_pool_eth, creator_addr
+         FROM tournaments
+         WHERE status = 'finished'
+         ORDER BY start_time DESC
+         LIMIT 20`
+      );
+      _json(res, 200, rows);
+    },
+  },
+
   // GET /api/tournament/:id — full info + matches grouped by round
   {
     match: (method, url) => method === "GET" && /^\/api\/tournament\/\d+$/.test(url),

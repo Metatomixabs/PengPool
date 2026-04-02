@@ -1277,6 +1277,14 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       + '<button id="recBtnClaim" style="width:100%;background:rgba(0,201,81,.1);border:1px solid rgba(0,201,81,.3);color:#00c951;font-family:inherit;font-size:10px;letter-spacing:1px;padding:9px 0;border-radius:5px;cursor:pointer">💰 Claim Pending Prize</button>'
       + '<div id="recClaimResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
       + '</div>'
+
+      // Section 3 — Tournament prizes
+      + '<div style="border:1px solid rgba(240,192,64,.2);border-radius:7px;padding:16px;margin-top:16px">'
+      + '<div style="font-size:11px;letter-spacing:1px;margin-bottom:12px;color:#c8e8f8">TOURNAMENT PRIZES</div>'
+      + '<button id="recBtnTournament" style="width:100%;background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);color:#f0c040;font-family:inherit;font-size:10px;letter-spacing:1px;padding:9px 0;border-radius:5px;cursor:pointer">🏆 Check Tournament Prizes</button>'
+      + '<div id="recTournamentResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
+      + '</div>'
+
       + '</div>';
 
     document.body.appendChild(overlay);
@@ -1293,6 +1301,8 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       document.getElementById('recClaimResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
       document.getElementById('recBtnMatch').disabled = true;
       document.getElementById('recBtnClaim').disabled = true;
+      document.getElementById('recBtnTournament').disabled = true;
+      document.getElementById('recTournamentResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
       return;
     }
 
@@ -1380,6 +1390,78 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       }
       btn.disabled = false;
       btn.textContent = '💰 Claim Pending Prize';
+    };
+
+    // Check tournament prizes
+    document.getElementById('recBtnTournament').onclick = async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      const resultEl = document.getElementById('recTournamentResult');
+      resultEl.innerHTML = '';
+      try {
+        const resp = await fetch(HTTP_URL + '/api/tournaments/finished');
+        const allFinished = await resp.json();
+        if (!Array.isArray(allFinished) || !allFinished.length) {
+          resultEl.innerHTML = '<span style="color:#7eb8d8">No finished tournaments found.</span>';
+          btn.disabled = false; btn.textContent = '🏆 Check Tournament Prizes';
+          return;
+        }
+
+        // Check each finished tournament for pending prizes
+        let found = 0;
+        resultEl.innerHTML = '<div style="color:#7eb8d8;margin-bottom:8px">Checking ' + allFinished.length + ' tournament(s)…</div>';
+
+        for (const t of allFinished) {
+          try {
+            const prizeResp = await fetch(HTTP_URL + '/api/tournament/' + t.id + '/prize/' + addr);
+            const prizeData = await prizeResp.json();
+            const prizeETH = parseFloat(prizeData.pendingPrizeETH || '0');
+            if (prizeETH > 0) {
+              found++;
+              const rowId = 'recTRow_' + t.id;
+              const row = document.createElement('div');
+              row.id = rowId;
+              row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid rgba(240,192,64,.1);font-size:10px;';
+              row.innerHTML =
+                '<span><b>' + (t.name || 'Tournament #' + t.id) + '</b><br>'
+                + '<span style="color:#f0c040">' + prizeETH.toFixed(6) + ' ETH</span></span>'
+                + '<button style="background:rgba(240,192,64,.15);border:1px solid rgba(240,192,64,.4);color:#f0c040;font-family:inherit;font-size:10px;letter-spacing:1px;padding:5px 12px;border-radius:5px;cursor:pointer;white-space:nowrap">CLAIM</button>';
+              resultEl.appendChild(row);
+
+              row.querySelector('button').onclick = async function() {
+                const claimBtn = this;
+                claimBtn.disabled = true;
+                claimBtn.textContent = 'Claiming…';
+                try {
+                  await _w.claimTournamentPrize(t.chain_id);
+                  row.innerHTML = '<span style="color:#f0c040"><b>' + (t.name || 'Tournament #' + t.id) + '</b> · ✅ Claimed!</span>';
+                  toast('Tournament prize claimed! 🏆');
+                } catch(err) {
+                  claimBtn.disabled = false;
+                  claimBtn.textContent = 'CLAIM';
+                  toast('Claim failed: ' + (err?.message || err), 1);
+                }
+              };
+            }
+          } catch(e) {
+            console.warn('[recovery] tournament prize check failed for', t.id, e.message);
+          }
+        }
+
+        if (found === 0) {
+          resultEl.innerHTML = '<span style="color:#7eb8d8">No unclaimed tournament prizes found.</span>';
+        } else {
+          const header = document.createElement('div');
+          header.style.cssText = 'color:#f0c040;margin-bottom:8px';
+          header.textContent = '✅ ' + found + ' unclaimed prize' + (found > 1 ? 's' : '') + ' found';
+          resultEl.insertBefore(header, resultEl.firstChild);
+        }
+      } catch(e) {
+        resultEl.innerHTML = '<span style="color:#ff6b6b">Error: ' + e.message + '</span>';
+      }
+      btn.disabled = false;
+      btn.textContent = '🏆 Check Tournament Prizes';
     };
   }
 })();
