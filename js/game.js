@@ -38,7 +38,7 @@ const _cgTLh = 30,
   _mgB = 30,
   _offT = 0,
   _offB = 0;
-const DEBUG_CUSHIONS = true; // DEBUG: set to true to visualize cushion rails and gaps
+const DEBUG_CUSHIONS = false; // DEBUG: set to true to visualize cushion rails and gaps
 const debugSegments = [
   [W / 1.08 - 25, H / 5.05 - 25, W / 1.0165 + 25, H / -20 + 25], // Line right-top
   [W / 1.036 - 25, H / 3.85 - 25, W / 1.01 + 25, H / 70 + 25], // Line right(right-top)
