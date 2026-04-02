@@ -20,7 +20,7 @@ ABSTRACT_LOGO.src =
 const R = 11,
   FRIC = 0.9875,
   MINS = 0.1,
-  MAXP = 23,
+  MAXP = 18,
   PR = 21;
 const WL = 53,
   WR = W - 54,
@@ -144,12 +144,27 @@ const _spriteDims = {};
 
 const PRAIL = 28;
 const PKT = [
-  { x: 45, y: 65, r: 24, type: "corner" }, // esquina TL
-  { x: W / 2, y: 54, r: 24, type: "mid" }, // centro top
-  { x: W - 45, y: 65, r: 24, type: "corner" }, // esquina TR
+  { x: 46, y: 66, r: 24, type: "corner" }, // esquina TL
+  { x: W / 2.015, y: 55, r: 24, type: "mid" }, // centro top
+  { x: W - 47, y: 67, r: 24, type: "corner" }, // esquina TR
   { x: 40, y: H - 50, r: 24, type: "corner" }, // esquina BL
-  { x: W / 2, y: H - 38, r: 24, type: "mid" }, // centro bot
-  { x: W - 42, y: H - 52, r: 24, type: "corner" }, // esquina BR
+  { x: W / 2.01, y: H - 39, r: 24, type: "mid" }, // centro bot
+  { x: W - 47, y: H - 52, r: 24, type: "corner" }, // esquina BR
+];
+
+const corners = [
+  {cx: 369, cy: 73},   // central top izq
+  {cx: 431, cy: 73},   // central top der
+  {cx: 368, cy: 440},  // central bot izq
+  {cx: 429, cy: 440},  // central bot der
+  {cx: 84,  cy: 73},   // TL horizontal
+  {cx: 50,  cy: 104.5},  // TL vertical
+  {cx: 713.5, cy: 73},   // TR horizontal
+  {cx: 749, cy: 107.5},  // TR vertical
+  {cx: 83,  cy: 440},  // BL horizontal
+  {cx: 50,  cy: 407},  // BL vertical
+  {cx: 714, cy: 440},  // BR horizontal
+  {cx: 748.5, cy: 407},  // BR vertical
 ];
 
 let balls,
@@ -584,8 +599,112 @@ function phys() {
       if (b === cue && b._ccdDone) {
         b._ccdDone = false;
       } else {
-        b.x += b.vx;
-        b.y += b.vy;
+        const SUBSTEPS = 2;
+        const _hitCorners = new Set();
+        for (let step = 0; step < SUBSTEPS; step++) {
+          b.x += b.vx / SUBSTEPS;
+          b.y += b.vy / SUBSTEPS;
+
+          // ── BANDAS ──
+          const midGap = 31; // apertura tronera central top/bottom
+          const cornerGap = 31; // zona de esquina sin banda
+
+          const nearTL = b.x < WL + cornerGap && b.y < WT + cornerGap;
+          const nearTR = b.x > WR - cornerGap && b.y < WT + cornerGap;
+          const nearBL = b.x < WL + cornerGap && b.y > WB - cornerGap;
+          const nearBR = b.x > WR - cornerGap && b.y > WB - cornerGap;
+          const atMidX = b.x > W / 2 - midGap && b.x < W / 2 + midGap;
+
+          let hitRail = false;
+          // Laterales — solo excepto esquinas (sin gap central lateral)
+          if (!nearTL && !nearBL && b.x - R < WL) {
+            b.x = WL + R;
+            b.vx *= -0.82;
+            hitRail = true;
+          }
+          if (!nearTR && !nearBR && b.x + R > WR) {
+            b.x = WR - R;
+            b.vx *= -0.82;
+            hitRail = true;
+          }
+          // Top/bottom — excepto tronera central y esquinas
+          if (!atMidX && !nearTL && !nearTR && b.y - R < WT) {
+            b.y = WT + R;
+            b.vy *= -0.82;
+            hitRail = true;
+          }
+          if (!atMidX && !nearBL && !nearBR && b.y + R > WB) {
+            b.y = WB - R;
+            b.vy *= -0.82;
+            hitRail = true;
+          }
+
+          if (hitRail) {
+            const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+            if (spd > 1.5) {
+              playRailHit();
+              if (
+                typeof gameMode !== "undefined" &&
+                gameMode === "multiplayer" &&
+                typeof _wsSend === "function" &&
+                currentGameId
+              ) {
+                const _n = Date.now();
+                if (_n - _lastSoundWs > 80) {
+                  _lastSoundWs = _n;
+                  _wsSend({ type: "sound", gameId: currentGameId, sound: "rail" });
+                }
+              }
+            }
+          }
+
+          // Deflexión en bocas de todas las troneras
+          for (let ci = 0; ci < corners.length; ci++) {
+            if (_hitCorners.has(ci)) continue;
+            const c = corners[ci];
+            // Detección normal (posición actual)
+            const dx = b.x - c.cx,
+              dy = b.y - c.cy,
+              dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < R + 4 && dist > 0.01) {
+              const nx = dx / dist,
+                ny = dy / dist;
+              b.x += nx * (R + 4 - dist);
+              b.y += ny * (R + 4 - dist);
+              const dot = b.vx * nx + b.vy * ny;
+              if (dot < 0) {
+                b.vx -= 2 * dot * nx;
+                b.vy -= 2 * dot * ny;
+                b.vx *= 0.72;
+                b.vy *= 0.72;
+              }
+              _hitCorners.add(ci);
+            } else {
+              // Detección de tunneling: comprobar si la trayectoria pasó por el punto
+              const prevX = b.x - b.vx / SUBSTEPS;
+              const prevY = b.y - b.vy / SUBSTEPS;
+              const pdx = prevX - c.cx,
+                pdy = prevY - c.cy,
+                prevDist = Math.sqrt(pdx * pdx + pdy * pdy);
+              if (prevDist < R + 4) {
+                const nx = pdx / prevDist,
+                  ny = pdy / prevDist;
+                b.x = c.cx + nx * (R + 4);
+                b.y = c.cy + ny * (R + 4);
+                const dot = b.vx * nx + b.vy * ny;
+                if (dot < 0) {
+                  b.vx -= 2 * dot * nx;
+                  b.vy -= 2 * dot * ny;
+                  b.vx *= 0.72;
+                  b.vy *= 0.72;
+                }
+                _hitCorners.add(ci);
+              }
+            }
+          }
+          for (const s of debugSegments)
+            ballSegmentCollision(b, s[0], s[1], s[2], s[3]);
+        } // end SUBSTEPS
       }
       b.vx *= FRIC;
       b.vy *= FRIC;
@@ -596,94 +715,6 @@ function phys() {
         b.vx = 0;
         b.vy = 0;
       }
-      // ── BANDAS ──
-      const midGap = 31; // apertura tronera central top/bottom
-      const cornerGap = 31; // zona de esquina sin banda
-
-      const nearTL = b.x < WL + cornerGap && b.y < WT + cornerGap;
-      const nearTR = b.x > WR - cornerGap && b.y < WT + cornerGap;
-      const nearBL = b.x < WL + cornerGap && b.y > WB - cornerGap;
-      const nearBR = b.x > WR - cornerGap && b.y > WB - cornerGap;
-      const atMidX = b.x > W / 2 - midGap && b.x < W / 2 + midGap;
-
-      let hitRail = false;
-      // Laterales — solo excepto esquinas (sin gap central lateral)
-      if (!nearTL && !nearBL && b.x - R < WL) {
-        b.x = WL + R;
-        b.vx *= -0.82;
-        hitRail = true;
-      }
-      if (!nearTR && !nearBR && b.x + R > WR) {
-        b.x = WR - R;
-        b.vx *= -0.82;
-        hitRail = true;
-      }
-      // Top/bottom — excepto tronera central y esquinas
-      if (!atMidX && !nearTL && !nearTR && b.y - R < WT) {
-        b.y = WT + R;
-        b.vy *= -0.82;
-        hitRail = true;
-      }
-      if (!atMidX && !nearBL && !nearBR && b.y + R > WB) {
-        b.y = WB - R;
-        b.vy *= -0.82;
-        hitRail = true;
-      }
-
-      if (hitRail) {
-        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-        if (spd > 1.5) {
-          playRailHit();
-          if (
-            typeof gameMode !== "undefined" &&
-            gameMode === "multiplayer" &&
-            typeof _wsSend === "function" &&
-            currentGameId
-          ) {
-            const _n = Date.now();
-            if (_n - _lastSoundWs > 80) {
-              _lastSoundWs = _n;
-              _wsSend({ type: "sound", gameId: currentGameId, sound: "rail" });
-            }
-          }
-        }
-      }
-
-      // Deflexión en bocas de todas las troneras
-      const corners = [
-        {cx:W/2+_offT-_mgT, cy:WT},
-        {cx:W/2+_offT+_mgT, cy:WT},
-        {cx:W/2+_offB-_mgB, cy:WB},
-        {cx:W/2+_offB+_mgB, cy:WB},
-        {cx:WL+_cgTLh, cy:WT},
-        {cx:WL, cy:WT+_cgTLv},
-        {cx:WR-_cgTRh, cy:WT},
-        {cx:WR, cy:WT+_cgTRv},
-        {cx:WL+_cgBLh, cy:WB},
-        {cx:WL, cy:WB-_cgBLv},
-        {cx:WR-_cgBRh, cy:WB},
-        {cx:WR, cy:WB-_cgBRv},
-      ];
-      for (const c of corners) {
-        const dx = b.x - c.cx,
-          dy = b.y - c.cy,
-          dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < R + 2 && dist > 0.01) {
-          const nx = dx / dist,
-            ny = dy / dist;
-          b.x += nx * (R + 2 - dist);
-          b.y += ny * (R + 2 - dist);
-          const dot = b.vx * nx + b.vy * ny;
-          if (dot < 0) {
-            b.vx -= 2 * dot * nx;
-            b.vy -= 2 * dot * ny;
-            b.vx *= 0.72;
-            b.vy *= 0.72;
-          }
-        }
-      }
-      for (const s of debugSegments)
-        ballSegmentCollision(b, s[0], s[1], s[2], s[3]);
       // Update visual rotation direction AFTER all velocity reflections are applied
       if (b.id !== 0) {
         const curSpd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
@@ -1793,21 +1824,7 @@ function loop(ts) {
     cx.stroke();
     // ── Corner deflection points (amarillo) — posiciones reales de física ──
     cx.fillStyle = "rgba(255,255,0,0.9)";
-    const _dbgC = [
-      { cx: W / 2 + _offT - _mgT, cy: WT }, // central top izq
-      { cx: W / 2 + _offT + _mgT, cy: WT }, // central top der
-      { cx: W / 2 + _offB - _mgB, cy: WB }, // central bottom izq
-      { cx: W / 2 + _offB + _mgB, cy: WB }, // central bottom der
-      { cx: WL + _cgTLh, cy: WT }, // TL horizontal
-      { cx: WL, cy: WT + _cgTLv }, // TL vertical
-      { cx: WR - _cgTRh, cy: WT }, // TR horizontal
-      { cx: WR, cy: WT + _cgTRv }, // TR vertical
-      { cx: WL + _cgBLh, cy: WB }, // BL horizontal
-      { cx: WL, cy: WB - _cgBLv }, // BL vertical
-      { cx: WR - _cgBRh, cy: WB }, // BR horizontal
-      { cx: WR, cy: WB - _cgBRv }, // BR vertical
-    ];
-    for (const c of _dbgC) {
+    for (const c of corners) {
       cx.beginPath();
       cx.arc(c.cx, c.cy, 4, 0, Math.PI * 2);
       cx.fill();
