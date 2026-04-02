@@ -38,7 +38,7 @@ const _cgTLh = 30,
   _mgB = 30,
   _offT = 0,
   _offB = 0;
-const DEBUG_CUSHIONS = false; // DEBUG: set to true to visualize cushion rails and gaps
+const DEBUG_CUSHIONS = true; // DEBUG: set to true to visualize cushion rails and gaps
 const debugSegments = [
   [W / 1.08 - 25, H / 5.05 - 25, W / 1.0165 + 25, H / -20 + 25], // Line right-top
   [W / 1.036 - 25, H / 3.85 - 25, W / 1.01 + 25, H / 70 + 25], // Line right(right-top)
@@ -144,12 +144,12 @@ const _spriteDims = {};
 
 const PRAIL = 28;
 const PKT = [
-  { x: 42, y: 62, r: 24, type: "corner" }, // esquina TL
-  { x: W / 2, y: 52, r: 24, type: "mid" }, // centro top
-  { x: W - 42, y: 62, r: 24, type: "corner" }, // esquina TR
+  { x: 45, y: 65, r: 24, type: "corner" }, // esquina TL
+  { x: W / 2, y: 54, r: 24, type: "mid" }, // centro top
+  { x: W - 45, y: 65, r: 24, type: "corner" }, // esquina TR
   { x: 40, y: H - 50, r: 24, type: "corner" }, // esquina BL
-  { x: W / 2, y: H - 35, r: 24, type: "mid" }, // centro bot
-  { x: W - 40, y: H - 50, r: 24, type: "corner" }, // esquina BR
+  { x: W / 2, y: H - 38, r: 24, type: "mid" }, // centro bot
+  { x: W - 42, y: H - 52, r: 24, type: "corner" }, // esquina BR
 ];
 
 let balls,
@@ -651,18 +651,18 @@ function phys() {
 
       // Deflexión en bocas de todas las troneras
       const corners = [
-        // {cx:W/2+_offT-_mgT, cy:WT},   // central top izq
-        // {cx:W/2+_offT+_mgT, cy:WT},   // central top der
-        // {cx:W/2+_offB-_mgB, cy:WB},   // central bottom izq
-        // {cx:W/2+_offB+_mgB, cy:WB},   // central bottom der
-        // {cx:WL+_cgTLh, cy:WT},        // TL horizontal
-        // {cx:WL, cy:WT+_cgTLv},        // TL vertical
-        // {cx:WR-_cgTRh, cy:WT},        // TR horizontal
-        // {cx:WR, cy:WT+_cgTRv},        // TR vertical
-        // {cx:WL+_cgBLh, cy:WB},        // BL horizontal
-        // {cx:WL, cy:WB-_cgBLv},        // BL vertical
-        // {cx:WR-_cgBRh, cy:WB},        // BR horizontal
-        // {cx:WR, cy:WB-_cgBRv},        // BR vertical
+        {cx:W/2+_offT-_mgT, cy:WT},
+        {cx:W/2+_offT+_mgT, cy:WT},
+        {cx:W/2+_offB-_mgB, cy:WB},
+        {cx:W/2+_offB+_mgB, cy:WB},
+        {cx:WL+_cgTLh, cy:WT},
+        {cx:WL, cy:WT+_cgTLv},
+        {cx:WR-_cgTRh, cy:WT},
+        {cx:WR, cy:WT+_cgTRv},
+        {cx:WL+_cgBLh, cy:WB},
+        {cx:WL, cy:WB-_cgBLv},
+        {cx:WR-_cgBRh, cy:WB},
+        {cx:WR, cy:WB-_cgBRv},
       ];
       for (const c of corners) {
         const dx = b.x - c.cx,
