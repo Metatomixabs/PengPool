@@ -27,6 +27,8 @@ let _mmRange = 5;
 let _mmOpponentAlias = '';
 let _mmOpponentAddr  = '';
 let _notifWs = null;
+let _wsSeq = 0; // outgoing message sequence number
+let _lastKnownBallCount = null; // tracks ball count for consistency checks
 
 function _connectNotifWs(addr) {
   if (_notifWs && _notifWs.readyState === WebSocket.OPEN) return;
@@ -104,6 +106,8 @@ function _connectWS(gameId, playerNum, addr) {
   if (_mmWs) { try { _mmWs.close(); } catch(_){} _mmWs = null; }
   try {
     _ws = new WebSocket(WS_URL);
+    _wsSeq = 0;
+    _lastKnownBallCount = null;
   } catch(e) {
     console.warn('[WS] Cannot connect:', e.message);
     toast('Sync server offline — shots won\'t sync', 1);
@@ -334,7 +338,43 @@ async function _leaveMmQueue() {
 }
 
 function _wsSend(obj) {
-  if (_ws && _ws.readyState === WebSocket.OPEN) _ws.send(JSON.stringify(obj));
+  if (_ws && _ws.readyState === WebSocket.OPEN) {
+    obj.seq = _wsSeq++;
+    _ws.send(JSON.stringify(obj));
+  }
+}
+
+function _validateResultState(msg) {
+  // Only validate when we are P2 (receiving P1's authoritative state)
+  if (myPlayerNum !== 2) return true;
+  if (!msg.balls || !Array.isArray(msg.balls)) return true; // no balls data, skip
+
+  const activeBalls = msg.balls.filter(b => !b.out).length;
+
+  // First result — establish baseline
+  if (_lastKnownBallCount === null) {
+    _lastKnownBallCount = activeBalls;
+    return true;
+  }
+
+  // Balls can only decrease (get pocketed) or stay the same between results
+  // A result that has MORE balls than the last known state is physically impossible
+  if (activeBalls > _lastKnownBallCount + 1) {
+    // Allow +1 tolerance for cue ball respawn edge cases
+    console.warn(`[cheat] physics inconsistency detected: ball count jumped from ${_lastKnownBallCount} to ${activeBalls}`);
+    return false;
+  }
+
+  // Ball count dropped by more than 2 in a single shot — suspicious
+  // (maximum 1 ball pocketed per legal shot, cue ball scratch = 0 net change)
+  if (_lastKnownBallCount - activeBalls > 2) {
+    console.warn(`[cheat] suspicious ball removal: ${_lastKnownBallCount} → ${activeBalls} in one shot`);
+    // Don't hard-reject — could be a legitimate multi-ball edge case
+    // Just log for now
+  }
+
+  _lastKnownBallCount = activeBalls;
+  return true;
 }
 
 function _showWaitingOverlay() {
@@ -378,6 +418,7 @@ function _wsOnMessage(msg) {
       myPlayerNum = msg.yourPlayerNum;
       console.log('[WS] playerNum corrected to', myPlayerNum);
     }
+    _lastKnownBallCount = null; // reset for new game
     _hideWaitingOverlay();
     _startMatchCountdown(msg.opponentAddr, msg.opponentAlias || '');
   }
@@ -411,6 +452,10 @@ function _wsOnMessage(msg) {
     // Authoritative final state from the shooter — apply and update turn
     _oppCueActive = false;
     console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
+    if (!_validateResultState(msg)) {
+      console.warn('[cheat] result message failed validation — ignoring');
+      return;
+    }
     if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
   }
   else if (msg.type === 'sound') {

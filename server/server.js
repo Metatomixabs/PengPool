@@ -109,6 +109,38 @@ function _broadcastRoom(room, obj) {
   _send(room.p2, obj);
 }
 
+function _resolveGameover(gameId, room, winnerNum, originalMsg) {
+  if (_settling.has(String(gameId))) return; // guard double-resolve
+
+  const winnerAddr = winnerNum === 1 ? room.p1addr : room.p2addr;
+  const loserAddr  = winnerNum === 1 ? room.p2addr : room.p1addr;
+  const ZERO = "0x0000000000000000000000000000000000000000";
+
+  // Record PvP result in DB for both players (fire-and-forget)
+  if (winnerAddr && winnerAddr !== ZERO) {
+    db.recordGameResult(winnerAddr, true).catch(e =>
+      console.error(`[db] game-result winner P${winnerNum}:`, e.message));
+  }
+  if (loserAddr && loserAddr !== ZERO) {
+    db.recordGameResult(loserAddr, false).catch(e =>
+      console.error(`[db] game-result loser:`, e.message));
+  }
+
+  if (!winnerAddr || winnerAddr === ZERO) {
+    console.warn(`[settle] game ${gameId}: no address for winner P${winnerNum}`);
+    return;
+  }
+
+  // Tournament rooms: route to tournament handler, skip PvP settlement
+  if (room.isTournament) {
+    tournament.handleMatchResult(String(gameId), winnerAddr, loserAddr);
+    return;
+  }
+
+  room.winnerNum = winnerNum;
+  _settle(gameId, winnerAddr, room);
+}
+
 async function _matchOnChain(addr1, addr2, betUSD) {
   try {
     if (!_contract) _getContract();
@@ -487,6 +519,20 @@ wss.on("connection", (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
+    // Sequence validation for in-game messages
+    if (ws._gameId && msg.type !== 'join' && msg.seq !== undefined) {
+      const room = rooms.get(ws._gameId);
+      if (room && ws._playerNum) {
+        const seqKey = `p${ws._playerNum}seq`;
+        const expected = room[seqKey] || 0;
+        if (msg.seq !== expected) {
+          console.warn(`[seq] game ${ws._gameId} P${ws._playerNum}: expected seq ${expected}, got ${msg.seq} — dropping msg type=${msg.type}`);
+          return;
+        }
+        room[seqKey]++;
+      }
+    }
+
     // ── Matchmaking: join queue ────────────────────────────────────────────
     if (msg.type === 'mm_join_queue') {
       // Identify the WS connection if not already done
@@ -574,6 +620,7 @@ wss.on("connection", (ws) => {
           ws._addr      = msg.addr || "";
           ws._alias     = msg.alias || "";
           room[`p${pNum}`] = ws;
+          room[`p${pNum}seq`] = 0; // reset sequence on reconnect
           console.log(`[room ${gameId}] P${pNum} reconnected (${addr.slice(0,8)}…)`);
 
           // Ask the active player to send their current state (source of truth).
@@ -674,6 +721,7 @@ wss.on("connection", (ws) => {
       room[`p${ws._playerNum}`]      = ws;
       room[`p${ws._playerNum}addr`]  = ws._addr;
       room[`p${ws._playerNum}alias`] = ws._alias;
+      room[`p${ws._playerNum}seq`] = 0; // expected sequence from this player
 
       if (msg.betUSD)  room.betUSD  = String(msg.betUSD);
       if (msg.matchId) room.matchId = msg.matchId;
@@ -821,38 +869,72 @@ wss.on("connection", (ws) => {
     else if (msg.type === "gameover") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
-      // Relay to opponent so their screen shows the winner
-      const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, msg);
-      _sendSpectators(ws._gameId, msg);
-      // Determine winner/loser addresses from the stored room
-      const winnerAddr = msg.winnerNum === 1 ? room.p1addr : room.p2addr;
-      const loserAddr  = msg.winnerNum === 1 ? room.p2addr : room.p1addr;
+      if (_settling.has(String(ws._gameId))) return; // already settling
 
-      // Record PvP result in DB for both players (fire-and-forget)
-      const ZERO = "0x0000000000000000000000000000000000000000";
-      if (winnerAddr && winnerAddr !== ZERO) {
-        db.recordGameResult(winnerAddr, true).catch(e =>
-          console.error(`[db] game-result winner P${msg.winnerNum}:`, e.message));
-      }
-      if (loserAddr && loserAddr !== ZERO) {
-        db.recordGameResult(loserAddr, false).catch(e =>
-          console.error(`[db] game-result loser:`, e.message));
-      }
+      const reportingPlayer = ws._playerNum; // 1 or 2
+      const claimedWinnerNum = msg.winnerNum;
 
-      if (!winnerAddr || winnerAddr === ZERO) {
-        console.warn(`[settle] game ${ws._gameId}: no address for winner P${msg.winnerNum}`);
+      // Validate winnerNum is 1 or 2
+      if (claimedWinnerNum !== 1 && claimedWinnerNum !== 2) {
+        console.warn(`[gameover] invalid winnerNum ${claimedWinnerNum} from P${reportingPlayer} in ${ws._gameId}`);
         return;
       }
 
-      // Tournament rooms: route to tournament handler, skip PvP settlement
-      if (room.isTournament) {
-        tournament.handleMatchResult(ws._gameId, winnerAddr, loserAddr);
+      // Initialize consensus tracking on room
+      if (!room.gameoverVotes) room.gameoverVotes = {};
+      room.gameoverVotes[reportingPlayer] = claimedWinnerNum;
+
+      console.log(`[gameover] P${reportingPlayer} reports winner=P${claimedWinnerNum} in game ${ws._gameId}`);
+
+      const votes = room.gameoverVotes;
+      const bothVoted = votes[1] !== undefined && votes[2] !== undefined;
+
+      if (!bothVoted) {
+        // First vote — relay gameover to opponent so they report too
+        const other = reportingPlayer === 1 ? room.p2 : room.p1;
+        _send(other, msg);
+        _sendSpectators(ws._gameId, msg);
+
+        // Start 10s timeout: if second player doesn't report, trust the first
+        room._gameoverTimeout = setTimeout(() => {
+          const r = rooms.get(ws._gameId);
+          if (!r || _settling.has(String(ws._gameId))) return;
+          if (r.gameoverVotes && Object.keys(r.gameoverVotes).length === 1) {
+            console.warn(`[gameover] timeout — only P${reportingPlayer} voted in ${ws._gameId}, settling with their report`);
+            _resolveGameover(ws._gameId, r, claimedWinnerNum, msg);
+          }
+        }, 10000);
         return;
       }
 
-      room.winnerNum = msg.winnerNum;
-      _settle(ws._gameId, winnerAddr, room);
+      // Both voted — clear timeout
+      if (room._gameoverTimeout) {
+        clearTimeout(room._gameoverTimeout);
+        room._gameoverTimeout = null;
+      }
+
+      if (votes[1] === votes[2]) {
+        // Consensus reached
+        console.log(`[gameover] consensus: both players agree winner=P${votes[1]} in game ${ws._gameId}`);
+        _resolveGameover(ws._gameId, room, votes[1], msg);
+      } else {
+        // Dispute — log and settle with second reporter's claim after short delay
+        console.warn(`[gameover] DISPUTE in game ${ws._gameId}: P1 says P${votes[1]} won, P2 says P${votes[2]} won`);
+        // In a dispute, we trust the loser's report (the winner wouldn't lie about losing)
+        // P1 says P${votes[1]} won — if votes[1]===2, P1 is reporting they lost (trustworthy)
+        // P2 says P${votes[2]} won — if votes[2]===1, P2 is reporting they lost (trustworthy)
+        let trustedWinnerNum = null;
+        if (votes[1] === 2) trustedWinnerNum = 2; // P1 says P2 won — trust P1 reporting their own loss
+        else if (votes[2] === 1) trustedWinnerNum = 1; // P2 says P1 won — trust P2 reporting their own loss
+        else {
+          // Both claiming they won — neither trustworthy
+          // Default: trust the player who reported second (they had more time to observe)
+          trustedWinnerNum = reportingPlayer === 1 ? votes[1] : votes[2];
+          console.warn(`[gameover] both claiming victory — defaulting to second reporter P${reportingPlayer}'s claim`);
+        }
+        console.log(`[gameover] dispute resolved: winner=P${trustedWinnerNum} in game ${ws._gameId}`);
+        _resolveGameover(ws._gameId, room, trustedWinnerNum, msg);
+      }
     }
 
   });
@@ -911,21 +993,7 @@ wss.on("connection", (ws) => {
       clearInterval(room[cdKey]); room[cdKey] = null; room[timerKey] = null;
       console.log(`[room ${ws._gameId}] P${pNum} timed out — declaring P${winnerNum} winner`);
       _send(other, { type: "gameover", winnerNum, reason: "opponent_timeout" });
-      const _toWinAddr  = winnerNum === 1 ? room.p1addr : room.p2addr;
-      const _toLoseAddr = winnerNum === 1 ? room.p2addr : room.p1addr;
-      const ZERO = "0x0000000000000000000000000000000000000000";
-      if (_toWinAddr && _toWinAddr !== ZERO)
-        db.recordGameResult(_toWinAddr, true).catch(e => console.error(`[db] timeout winner:`, e.message));
-      if (_toLoseAddr && _toLoseAddr !== ZERO)
-        db.recordGameResult(_toLoseAddr, false).catch(e => console.error(`[db] timeout loser:`, e.message));
-      if (_toWinAddr && _toWinAddr !== ZERO) {
-        if (room.isTournament) {
-          tournament.handleMatchResult(ws._gameId, _toWinAddr, _toLoseAddr);
-          rooms.delete(ws._gameId);
-          return;
-        }
-        room.winnerNum = winnerNum; _settle(ws._gameId, _toWinAddr, room);
-      }
+      _resolveGameover(ws._gameId, room, winnerNum, {});
       rooms.delete(ws._gameId);
     }, TIMEOUT_SEC * 1000);
   });
