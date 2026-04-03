@@ -666,11 +666,11 @@ function phys() {
             const dx = b.x - c.cx,
               dy = b.y - c.cy,
               dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < R + 4 && dist > 0.01) {
+            if (dist < R + 2 && dist > 0.01) {
               const nx = dx / dist,
                 ny = dy / dist;
-              b.x += nx * (R + 4 - dist);
-              b.y += ny * (R + 4 - dist);
+              b.x += nx * (R + 2 - dist);
+              b.y += ny * (R + 2 - dist);
               const dot = b.vx * nx + b.vy * ny;
               if (dot < 0) {
                 b.vx -= 2 * dot * nx;
@@ -686,11 +686,11 @@ function phys() {
               const pdx = prevX - c.cx,
                 pdy = prevY - c.cy,
                 prevDist = Math.sqrt(pdx * pdx + pdy * pdy);
-              if (prevDist < R + 4) {
+              if (prevDist < R + 2) {
                 const nx = pdx / prevDist,
                   ny = pdy / prevDist;
-                b.x = c.cx + nx * (R + 4);
-                b.y = c.cy + ny * (R + 4);
+                b.x = c.cx + nx * (R + 2);
+                b.y = c.cy + ny * (R + 2);
                 const dot = b.vx * nx + b.vy * ny;
                 if (dot < 0) {
                   b.vx -= 2 * dot * nx;
