@@ -20,6 +20,7 @@ const tournament = require("./tournament");
 const http      = require("http");
 const WebSocket = require("ws");
 const { ethers } = require("ethers");
+const crypto    = require("crypto");
 const db        = require("./db");
 
 const PORT = process.env.PORT || 8080;
@@ -542,6 +543,55 @@ const httpServer = http.createServer(async (req, res) => {
   }
 });
 
+// ── WebSocket ERC-1271 authentication ────────────────────────────────────────
+let _authProvider = null;
+function _ensureAuthProvider() {
+  if (_authProvider) return _authProvider;
+  _authProvider = new ethers.JsonRpcProvider(process.env.RPC_URL || "https://api.testnet.abs.xyz");
+  return _authProvider;
+}
+
+const _ERC1271_ABI   = ["function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)"];
+const _ERC1271_MAGIC = "0x1626ba7e";
+
+// Human-readable auth message shown to the user in the wallet popup
+function _authMsg(nonce) {
+  return (
+    "PengPool Session Login\n\n" +
+    "By signing this message you are verifying ownership of your wallet.\n" +
+    "This signature does not grant access to your funds or execute any transaction.\n" +
+    "Valid for 24 hours.\n\n" +
+    "Nonce: " + nonce
+  );
+}
+
+async function _verifyERC1271(addr, message, signature) {
+  const provider = _ensureAuthProvider();
+  const hash     = ethers.hashMessage(message);
+  const contract = new ethers.Contract(addr, _ERC1271_ABI, provider);
+  const result   = await Promise.race([
+    contract.isValidSignature(hash, signature),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("ERC-1271 timed out")), 8000)
+    ),
+  ]);
+  return result.toLowerCase() === _ERC1271_MAGIC;
+}
+
+// Session token store: token → { addr, expiresAt }
+const _sessionTokens  = new Map();
+const _SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Clean up expired tokens every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  let removed = 0;
+  for (const [tok, entry] of _sessionTokens) {
+    if (now > entry.expiresAt) { _sessionTokens.delete(tok); removed++; }
+  }
+  if (removed) console.log(`[auth] token cleanup — removed ${removed}, ${_sessionTokens.size} active`);
+}, 30 * 60 * 1000);
+
 const wss = new WebSocket.Server({ server: httpServer });
 
 // Init tournament module
@@ -551,12 +601,88 @@ if (_wp) {
 }
 
 wss.on("connection", (ws) => {
-  ws._gameId    = null;
-  ws._playerNum = null;
+  ws._gameId        = null;
+  ws._playerNum     = null;
+  ws._authenticated = false;
+  ws._authSkipped   = false;
+  ws._msgBuffer     = [];
 
-  ws.on("message", (raw) => {
+  // Issue challenge immediately
+  const _nonce = crypto.randomBytes(16).toString("hex");
+  ws._nonce    = _nonce;
+  _send(ws, { type: "auth_challenge", nonce: _nonce });
+
+  // Close if no auth arrives within 15 seconds
+  const _authTimer = setTimeout(() => {
+    if (!ws._authenticated) {
+      console.warn("[auth] timeout — closing unauthenticated WS");
+      ws.close(1008, "Authentication timeout");
+    }
+  }, 15000);
+  ws.on("close", () => clearTimeout(_authTimer));
+
+  ws.on("message", async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    // ── Authentication gate ───────────────────────────────────────────────
+    if (!ws._authenticated) {
+      if (msg.type === "auth_token") {
+        const { addr, token } = msg;
+        if (!addr || !token) { ws.close(1008, "Invalid auth_token"); return; }
+        const entry = _sessionTokens.get(token);
+        if (!entry || Date.now() > entry.expiresAt || entry.addr !== addr.toLowerCase()) {
+          console.warn(`[auth] invalid/expired token from ${(addr||'').slice(0,8)}…`);
+          ws.close(1008, "Invalid or expired session token"); return;
+        }
+        ws._authenticated = true;
+        ws._addr = addr.toLowerCase();
+        console.log(`[auth] token auth: ${addr.slice(0,8)}…`);
+        const tBuf = ws._msgBuffer; ws._msgBuffer = [];
+        for (const r of tBuf) process.nextTick(() => ws.emit("message", r));
+        return;
+      }
+      if (msg.type === "auth_response") {
+        const { addr, signature } = msg;
+        if (!addr || !signature || !ws._nonce) {
+          ws.close(1008, "Invalid auth_response"); return;
+        }
+        const nonce = ws._nonce;
+        ws._nonce   = null; // consume — anti-replay
+        let valid = false;
+        try { valid = await _verifyERC1271(addr, _authMsg(nonce), signature); }
+        catch (e) {
+          console.warn(`[auth] ERC-1271 error for ${addr.slice(0,8)}…: ${e.message}`);
+          ws.close(1008, "Authentication error"); return;
+        }
+        if (!valid) {
+          console.warn(`[auth] signature invalid for ${addr.slice(0,8)}…`);
+          ws.close(1008, "Authentication failed"); return;
+        }
+        ws._authenticated = true;
+        ws._addr = addr.toLowerCase();
+        // Issue session token so client avoids re-signing on reconnects
+        const sessionToken = crypto.randomBytes(32).toString("hex");
+        _sessionTokens.set(sessionToken, { addr: addr.toLowerCase(), expiresAt: Date.now() + _SESSION_TTL_MS });
+        console.log(`[auth] authenticated + token issued: ${addr.slice(0,8)}…`);
+        _send(ws, { type: "auth_token_issued", token: sessionToken });
+        const buf = ws._msgBuffer; ws._msgBuffer = [];
+        for (const r of buf) process.nextTick(() => ws.emit("message", r));
+        return;
+      }
+      if (msg.type === "auth_skip") {
+        // Allowed only for spectator joins (playerNum 0) and notif sockets
+        ws._authSkipped   = true;
+        ws._authenticated = true;
+        const buf = ws._msgBuffer; ws._msgBuffer = [];
+        for (const r of buf) process.nextTick(() => ws.emit("message", r));
+        return;
+      }
+      // Buffer everything else until auth completes
+      ws._msgBuffer.push(raw);
+      return;
+    }
+    // ── End auth gate ─────────────────────────────────────────────────────
 
     // Sequence validation for in-game messages
     if (ws._gameId && msg.type !== 'join' && msg.seq !== undefined) {
@@ -574,6 +700,7 @@ wss.on("connection", (ws) => {
 
     // ── Matchmaking: join queue ────────────────────────────────────────────
     if (msg.type === 'mm_join_queue') {
+      if (ws._authSkipped) { ws.close(1008, "Unauthorized"); return; }
       // Identify the WS connection if not already done
       if (!ws._addr && msg.addr) {
         ws._addr  = msg.addr.toLowerCase();
@@ -627,6 +754,12 @@ wss.on("connection", (ws) => {
     if (msg.type === "join") {
       const gameId = String(msg.gameId);
       const addr   = (msg.addr || "").toLowerCase();
+
+      // auth_skip connections may only be spectators (playerNum 0) or notif sockets
+      if (ws._authSkipped && msg.playerNum !== 0 && !gameId.startsWith('notif_')) {
+        console.warn(`[auth] auth_skip attempted non-exempt join from ${addr.slice(0,8)}… — closing`);
+        ws.close(1008, "Unauthorized"); return;
+      }
 
       // Notification-only socket — just register addr for tournament WS pushes
       if (gameId.startsWith('notif_')) {

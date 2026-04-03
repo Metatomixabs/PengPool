@@ -434,6 +434,12 @@
         console.log("[PengPool] claimTournamentPrize tx:", tx); return tx;
       }).catch(function(err) { _fail("claimTournamentPrize", err); });
     },
+    // signMessage(message) — sign a plain string with the connected AGW wallet
+    signMessage: function(message) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      return _abs.signMessage({ message: message })
+        .catch(function(err) { _fail("signMessage", err); });
+    },
     getAddress:     function () { return _agw; },
     getEOA:         function () { return _eoa; },
     isConnected:    function () { return _abs !== null; },

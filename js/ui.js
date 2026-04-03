@@ -29,23 +29,95 @@ let _mmOpponentAddr  = '';
 let _notifWs = null;
 let _wsSeq = 0; // outgoing message sequence number
 let _lastKnownBallCount = null; // tracks ball count for consistency checks
+let _wsPendingMsg  = null; // join message deferred until _ws auth completes
+let _mmPendingMsg  = null; // mm_join_queue message deferred until _mmWs auth completes
+
+// ── Auth message (must match server's _authMsg exactly) ──────────────────────
+function _authMessage(nonce) {
+  return (
+    "PengPool Session Login\n\n" +
+    "By signing this message you are verifying ownership of your wallet.\n" +
+    "This signature does not grant access to your funds or execute any transaction.\n" +
+    "Valid for 24 hours.\n\n" +
+    "Nonce: " + nonce
+  );
+}
+
+// ── Session token helpers ─────────────────────────────────────────────────────
+const _SESSION_TOKEN_KEY = 'pp_session_token';
+const _SESSION_TS_KEY    = 'pp_session_ts';
+const _SESSION_TTL       = 24 * 60 * 60 * 1000; // 24 hours
+
+function _getSessionToken() {
+  try {
+    const token = localStorage.getItem(_SESSION_TOKEN_KEY);
+    const ts    = Number(localStorage.getItem(_SESSION_TS_KEY));
+    if (!token || !ts) return null;
+    if (Date.now() - ts > _SESSION_TTL) {
+      localStorage.removeItem(_SESSION_TOKEN_KEY);
+      localStorage.removeItem(_SESSION_TS_KEY);
+      return null;
+    }
+    return token;
+  } catch { return null; }
+}
+
+function _saveSessionToken(token) {
+  try {
+    localStorage.setItem(_SESSION_TOKEN_KEY, token);
+    localStorage.setItem(_SESSION_TS_KEY, String(Date.now()));
+  } catch {}
+}
+
+function _clearSessionToken() {
+  try {
+    localStorage.removeItem(_SESSION_TOKEN_KEY);
+    localStorage.removeItem(_SESSION_TS_KEY);
+  } catch {}
+}
 
 function _connectNotifWs(addr) {
   if (_notifWs && _notifWs.readyState === WebSocket.OPEN) return;
   if (_notifWs) { try { _notifWs.close(); } catch(_){} }
   _notifWs = new WebSocket(WS_URL);
   _notifWs.onopen = () => {
-    _notifWs.send(JSON.stringify({
-      type: 'join',
-      gameId: 'notif_' + addr.toLowerCase(),
-      playerNum: 0,
-      addr: addr,
-      alias: getStoredUsername(addr) || ''
-    }));
     console.log('[notifWs] connected for', addr.slice(0,8));
   };
-  _notifWs.onmessage = (evt) => {
+  _notifWs.onmessage = async (evt) => {
     let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === 'auth_challenge') {
+      const w = window.PengPoolWeb3;
+      const _notifJoin = JSON.stringify({
+        type: 'join', gameId: 'notif_' + addr.toLowerCase(),
+        playerNum: 0, addr: addr, alias: getStoredUsername(addr) || ''
+      });
+      try {
+        const token = _getSessionToken();
+        if (token) {
+          // Token already valid — no popup needed
+          _notifWs.send(JSON.stringify({ type: 'auth_token', addr, token }));
+        } else if (w?.isConnected()) {
+          // First login of the session — show the signing popup once here,
+          // before matchmaking or any other action
+          const signature = await w.signMessage(_authMessage(msg.nonce));
+          _notifWs.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+        } else {
+          // Wallet not connected yet (edge case) — skip for notif socket only
+          _notifWs.send(JSON.stringify({ type: 'auth_skip' }));
+        }
+        _notifWs.send(_notifJoin);
+      } catch(e) {
+        console.error('[notifWs] Auth error:', e.message);
+        _clearSessionToken();
+        // Fallback: notif socket uses skip so tournament notifications still arrive
+        try { _notifWs.send(JSON.stringify({ type: 'auth_skip' })); _notifWs.send(_notifJoin); } catch(_) {}
+      }
+      return;
+    }
+    if (msg.type === 'auth_token_issued') {
+      _saveSessionToken(msg.token);
+      return;
+    }
     if (msg.type === 'tournament_match_ready')        _tOnMatchReady(msg);
     else if (msg.type === 'tournament_prize_available') _tOnPrizeAvailable(msg);
     else if (msg.type === 'tournament_player_timeout') {
@@ -114,16 +186,42 @@ function _connectWS(gameId, playerNum, addr) {
     return;
   }
   _ws.onopen = () => {
-    const joinMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '', betUSD: _mmBetKey };
-    console.log('[WS] Sending join:', JSON.stringify(joinMsg));
-    _ws.send(JSON.stringify(joinMsg));
+    _wsPendingMsg = { type: 'join', gameId, playerNum, addr, alias: getStoredUsername(addr) || '', betUSD: _mmBetKey };
+    console.log('[WS] connected, awaiting auth_challenge');
   };
-  _ws.onmessage = (evt) => {
+  _ws.onmessage = async (evt) => {
     let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === 'auth_challenge') {
+      const w = window.PengPoolWeb3;
+      try {
+        if (playerNum === 0 || !addr || !w?.isConnected()) {
+          // Spectator or no wallet — skip auth
+          _ws.send(JSON.stringify({ type: 'auth_skip' }));
+        } else {
+          const token = _getSessionToken();
+          if (token) {
+            _ws.send(JSON.stringify({ type: 'auth_token', addr, token }));
+          } else {
+            const signature = await w.signMessage(_authMessage(msg.nonce));
+            _ws.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+          }
+        }
+        // Send pending join — server buffers it until auth is verified
+        if (_wsPendingMsg) { _ws.send(JSON.stringify(_wsPendingMsg)); _wsPendingMsg = null; }
+      } catch(e) {
+        console.error('[WS] Auth error:', e.message);
+        _clearSessionToken(); // token may be stale — force re-sign next time
+        try { _ws.close(); } catch(_) {}
+      }
+      return;
+    }
     _wsOnMessage(msg);
   };
   _ws.onerror = () => toast('Sync server offline — shots won\'t sync', 1);
-  _ws.onclose = () => console.log('[WS] Disconnected');
+  _ws.onclose = (evt) => {
+    if (evt.code === 1008) _clearSessionToken(); // auth rejected — force re-sign next time
+    console.log('[WS] Disconnected', evt.code);
+  };
 }
 
 async function _fetchMyLevel(addr) {
@@ -146,7 +244,10 @@ function _connectMmWs() {
     _mmOnMessage(msg);
   };
   _mmWs.onerror = () => toast('Matchmaking server offline', 1);
-  _mmWs.onclose = () => { _mmWs = null; };
+  _mmWs.onclose = (evt) => {
+    if (evt.code === 1008) _clearSessionToken(); // auth rejected — force re-sign next time
+    _mmWs = null;
+  };
   return _mmWs;
 }
 
@@ -157,6 +258,29 @@ function _mmSend(obj) {
 }
 
 async function _mmOnMessage(msg) {
+  if (msg.type === 'auth_challenge') {
+    const w = window.PengPoolWeb3;
+    const myAddr = w?.getAddress?.() || '';
+    try {
+      const token = _getSessionToken();
+      if (token) {
+        _mmSend({ type: 'auth_token', addr: myAddr, token });
+      } else {
+        const signature = await w.signMessage(_authMessage(msg.nonce));
+        _mmSend({ type: 'auth_response', addr: myAddr, signature });
+      }
+      if (_mmPendingMsg) { _mmSend(_mmPendingMsg); _mmPendingMsg = null; }
+    } catch(e) {
+      console.error('[mmWs] Auth error:', e.message);
+      _clearSessionToken();
+      if (_mmWs) { try { _mmWs.close(); } catch(_){} _mmWs = null; }
+    }
+    return;
+  }
+  if (msg.type === 'auth_token_issued') {
+    _saveSessionToken(msg.token);
+    return;
+  }
   const w = window.PengPoolWeb3;
   if (msg.type === 'mm_queue_counts') {
     const el1 = document.getElementById('mmCount1');
@@ -309,16 +433,20 @@ async function _enterQueue(betUSD) {
 
   // Step 2: connect MM WebSocket and join queue
   _connectMmWs();
-  const ws = _mmWs;
-  ws.onopen = () => {
-    _mmSend({
-      type:   'mm_join_queue',
-      betUSD: _mmBetKey,
-      level:  _myLevel,
-      addr:   addr,
-      alias:  getStoredUsername(addr) || shortenAddr(addr)
-    });
+  _mmPendingMsg = {
+    type:   'mm_join_queue',
+    betUSD: _mmBetKey,
+    level:  _myLevel,
+    addr:   addr,
+    alias:  getStoredUsername(addr) || shortenAddr(addr)
   };
+  if (_mmWs && _mmWs.readyState === WebSocket.OPEN) {
+    // Already open and authenticated — send immediately
+    _mmSend(_mmPendingMsg);
+    _mmPendingMsg = null;
+  } else {
+    _mmWs.onopen = () => {}; // auth_challenge will trigger mm_join_queue via _mmOnMessage
+  }
 }
 
 async function _leaveMmQueue() {
@@ -412,6 +540,10 @@ function _hideReconnectOverlay() {
 
 function _wsOnMessage(msg) {
   const G = window.PengPoolGame;
+  if (msg.type === 'auth_token_issued') {
+    _saveSessionToken(msg.token);
+    return;
+  }
   if (msg.type === 'ready') {
     console.log('Ready received, opponentAlias:', msg.opponentAlias);
     if (msg.yourPlayerNum) {
