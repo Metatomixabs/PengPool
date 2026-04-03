@@ -2,12 +2,13 @@
 pragma solidity ^0.8.28;
 
 import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /// @title PengPoolV2 - Escrow-based matchmaking with claim pattern
 /// @notice Players deposit their bet when entering the matchmaking queue.
 ///         A trusted matchmaker (server wallet) pairs two players and creates a match.
 ///         The winner claims their prize explicitly; unclaimed prizes expire after 24h.
-contract PengPoolV2 {
+contract PengPoolV2 is ReentrancyGuard {
 
     // -------------------------------------------------------------------------
     // Types
@@ -149,7 +150,7 @@ contract PengPoolV2 {
     }
 
     /// @notice Withdraw deposit if not yet matched. Cancels queue entry.
-    function withdrawDeposit() external {
+    function withdrawDeposit() external nonReentrant {
         Deposit storage dep = deposits[msg.sender];
         require(dep.amount > 0,  "PengPoolV2: no deposit");
         require(!dep.matched,    "PengPoolV2: already matched - cannot withdraw");
@@ -165,7 +166,7 @@ contract PengPoolV2 {
 
     /// @notice Winner claims their prize after declareWinner().
     /// @param  matchId  ID of the finished match.
-    function claimWinnings(uint256 matchId) external {
+    function claimWinnings(uint256 matchId) external nonReentrant {
         Match storage m = matches[matchId];
         require(m.status == MatchStatus.FINISHED, "PengPoolV2: match not finished");
         require(m.winner == msg.sender,            "PengPoolV2: not the winner");
@@ -195,7 +196,7 @@ contract PengPoolV2 {
     /// @param  addr2   Address of player 2.
     /// @param  betUSD  Expected bet tier — must match both deposits.
     /// @return matchId ID of the newly created match.
-    function matchPlayers(address addr1, address addr2, uint8 betUSD) external onlyMatchmaker returns (uint256 matchId) {
+    function matchPlayers(address addr1, address addr2, uint8 betUSD) external onlyMatchmaker nonReentrant returns (uint256 matchId) {
         require(addr1 != addr2, "PengPoolV2: cannot match player with themselves");
 
         Deposit storage dep1 = deposits[addr1];

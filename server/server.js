@@ -55,7 +55,7 @@ const _limitClaim    = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
 
 // ── On-chain settlement ───────────────────────────────────────────────────────
 
-const PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455";
+const PENGPOOL_ADDRESS = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208";
 const DECLARE_ABI = [
   "function declareWinner(uint256 matchId, address winner) external",
   "function matchPlayers(address addr1, address addr2, uint8 betUSD) external returns (uint256 matchId)",

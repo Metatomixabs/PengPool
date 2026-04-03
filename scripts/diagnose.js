@@ -1,6 +1,6 @@
 const { ethers } = require("hardhat");
 
-const PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455"; // PengPoolV2
+const PENGPOOL_ADDRESS = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208"; // PengPoolV2
 
 const PENGPOOL_ABI = [
   "function skipStalenessCheck() view returns (bool)",
