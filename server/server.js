@@ -24,6 +24,35 @@ const db        = require("./db");
 
 const PORT = process.env.PORT || 8080;
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Fixed-window rate limiter. Returns false when the caller exceeds the quota.
+function _createRateLimiter(max, windowMs) {
+  const store = new Map(); // ip → { count, resetAt }
+  return function(ip) {
+    const now = Date.now();
+    let entry = store.get(ip);
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + windowMs };
+      store.set(ip, entry);
+    }
+    entry.count++;
+    return entry.count <= max;
+  };
+}
+
+function _clientIp(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  return (fwd ? fwd.split(",")[0] : req.socket.remoteAddress || "").trim();
+}
+
+const _TOO_MANY_JSON = JSON.stringify({ error: "Too many requests, please try again later" });
+
+const _limitGeneral  = _createRateLimiter(100, 15 * 60 * 1000); // 100 / 15 min
+const _limitRegister = _createRateLimiter(30,  60 * 60 * 1000); //  30 / 1 h
+const _limitAlias    = _createRateLimiter(10,  60 * 60 * 1000); //  10 / 1 h
+const _limitMatch    = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
+const _limitClaim    = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
+
 // ── On-chain settlement ───────────────────────────────────────────────────────
 
 const PENGPOOL_ADDRESS = "0x498ECbe4dc1a7e25bb9A3A4F58FEd890f2A3E455";
@@ -324,12 +353,19 @@ const httpServer = http.createServer(async (req, res) => {
       res.end(); return;
     }
 
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    const _ip = _clientIp(req);
+    if (!_limitGeneral(_ip)) {
+      _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return;
+    }
+
     // ── existing alias endpoints ──────────────────────────────────────────────
     if (req.method === "GET" && req.url === "/aliases") {
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
       res.end(JSON.stringify(Object.fromEntries(aliases))); return;
     }
     if (req.method === "POST" && req.url === "/alias") {
+      if (!_limitAlias(_ip)) { _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return; }
       const body = await _readBody(req);
       try {
         const { addr, alias } = JSON.parse(body);
@@ -368,6 +404,7 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && req.url === "/api/player/register") {
+      if (!_limitRegister(_ip)) { _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return; }
       try {
         const { wallet, username } = JSON.parse(await _readBody(req));
         console.log(`[api] register wallet=${wallet?.slice(0,10)}… username="${username}"`);
@@ -405,6 +442,7 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/pending-match/")) {
+      if (!_limitMatch(_ip)) { _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return; }
       const addr  = req.url.slice("/api/pending-match/".length).toLowerCase();
       const match = pendingMatches.get(addr);
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
@@ -431,6 +469,7 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/pending-claim/")) {
+      if (!_limitClaim(_ip)) { _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return; }
       const addr  = req.url.slice("/api/pending-claim/".length).toLowerCase();
       const claims = pendingClaims.get(addr) || [];
       res.writeHead(200, { "Content-Type": "application/json", ...CORS });
