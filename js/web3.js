@@ -21,6 +21,29 @@
 
   var PENGPOOL_ADDRESS = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
 
+  var TABLE_NFT_ADDRESS = "0x84f038171F43c065d28A47bb1E15f33a4C7BF455";
+  var TABLE_NFT_ABI = [
+    { name: "balanceOf", type: "function", stateMutability: "view",
+      inputs:  [{ name: "account", type: "address" }, { name: "id", type: "uint256" }],
+      outputs: [{ name: "", type: "uint256" }] },
+    { name: "claim", type: "function", stateMutability: "payable",
+      inputs: [
+        { name: "_receiver",       type: "address" },
+        { name: "_tokenId",        type: "uint256" },
+        { name: "_quantity",       type: "uint256" },
+        { name: "_currency",       type: "address" },
+        { name: "_pricePerToken",  type: "uint256" },
+        { name: "_allowlistProof", type: "tuple", components: [
+            { name: "proof",                  type: "bytes32[]" },
+            { name: "quantityLimitPerWallet", type: "uint256"   },
+            { name: "pricePerToken",          type: "uint256"   },
+            { name: "currency",               type: "address"   }
+          ]},
+        { name: "_data", type: "bytes" }
+      ],
+      outputs: [] },
+  ];
+
   var PENGPOOL_ABI = [
     // deposit(betUSD) — player deposits bet to enter queue
     { name: "deposit", type: "function", stateMutability: "payable",
@@ -444,6 +467,41 @@
     getEOA:         function () { return _eoa; },
     isConnected:    function () { return _abs !== null; },
     PENGPOOL_ADDRESS: PENGPOOL_ADDRESS,
+    // nftBalanceOf(wallet, tokenId) — read NFT balance via existing publicClient
+    nftBalanceOf: function(wallet, tokenId) {
+      return _ensurePub().then(function(pub) {
+        return pub.readContract({
+          address: TABLE_NFT_ADDRESS, abi: TABLE_NFT_ABI,
+          functionName: "balanceOf", args: [wallet, BigInt(tokenId)],
+        });
+      }).catch(function(err) { _fail("nftBalanceOf", err); });
+    },
+    // claimNFT(tokenId, allowlistProof) — calls contract directly with server-provided merkle proof
+    // allowlistProof = { proof: string[], quantityLimitPerWallet: string, pricePerToken: string, currency: string }
+    claimNFT: function(tokenId, allowlistProof) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      return _abs.writeContract({
+        address:      TABLE_NFT_ADDRESS,
+        abi:          TABLE_NFT_ABI,
+        functionName: "claim",
+        args: [
+          _agw,
+          BigInt(tokenId),
+          1n,
+          allowlistProof.currency,
+          BigInt(allowlistProof.pricePerToken),
+          {
+            proof:                  allowlistProof.proof,
+            quantityLimitPerWallet: BigInt(allowlistProof.quantityLimitPerWallet),
+            pricePerToken:          BigInt(allowlistProof.pricePerToken),
+            currency:               allowlistProof.currency,
+          },
+          "0x",
+        ],
+        value: 0n,
+      }).then(function(tx) { console.log("[PengPool] claimNFT tx:", tx); return tx; })
+        .catch(function(err) { _fail("claimNFT", err); });
+    },
     formatEther:    formatEther,
   });
 

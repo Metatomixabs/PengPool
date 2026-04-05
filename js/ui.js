@@ -2230,3 +2230,87 @@ window._debugWithdrawDeposit = async function() {
     console.error('withdrawDeposit failed:', e);
   }
 };
+
+// ══════════════════════════
+// NFT COLLECTION PANEL
+// ══════════════════════════
+(function () {
+  const overlay = document.getElementById('nftModal');
+  const content = document.getElementById('nftContent');
+  const close = () => overlay.classList.remove('on');
+
+  const TABLES = [
+    { tokenId: 0, name: 'Blue Table',   levelRequired: 10, img: 'assets/pooltable/t_blue.png'   },
+    { tokenId: 1, name: 'Red Table',    levelRequired: 20, img: 'assets/pooltable/t_red.png'    },
+    { tokenId: 2, name: 'Purple Table', levelRequired: 30, img: 'assets/pooltable/t_purple.png' },
+    { tokenId: 3, name: 'Black Table',  levelRequired: 40, img: 'assets/pooltable/t_black.png'  },
+    { tokenId: 4, name: 'Gold Table',   levelRequired: 50, img: 'assets/pooltable/t_gold.png'   },
+  ];
+
+  async function openNFT() {
+    overlay.classList.add('on');
+    content.innerHTML = '<div class="level-loading">Loading\u2026</div>';
+    const w = window.PengPoolWeb3;
+    if (!w || !w.isConnected()) {
+      content.innerHTML = '<div class="level-loading">Connect your wallet to view NFTs.</div>';
+      return;
+    }
+    const addr = w.getAddress();
+    try {
+      const [playerRes, balances] = await Promise.all([
+        fetch(HTTP_URL + '/api/player/' + encodeURIComponent(addr)).then(r => r.json()),
+        Promise.all(TABLES.map(t => w.nftBalanceOf(addr, t.tokenId).catch(() => 0n))),
+      ]);
+      const level = Number(playerRes.level) || 0;
+      let html = '<div class="nft-section"><div class="nft-section-title">Tables</div><div class="nft-grid">';
+      TABLES.forEach((t, i) => {
+        const owned    = BigInt(balances[i] || 0n) > 0n;
+        const unlocked = level >= t.levelRequired;
+        let badge;
+        if (owned)         badge = '<div class="nft-status owned">OWNED</div>';
+        else if (unlocked) badge = `<button class="nft-claim-btn" data-tokenid="${t.tokenId}">CLAIM</button>`;
+        else               badge = `<div class="nft-status locked">LEVEL ${t.levelRequired}</div>`;
+        const cardClass = owned ? 'nft-card owned-card' : 'nft-card';
+        const lockedOverlay = (!owned && !unlocked) ? '<div class="nft-locked-overlay">🔒</div>' : '';
+        html += `<div class="${cardClass}"><div class="nft-img-wrap"><img src="${t.img}" class="nft-card-img" alt="${t.name}">${lockedOverlay}</div><div class="nft-card-name">${t.name}</div><div class="nft-card-level">LVL ${t.levelRequired} required</div>${badge}</div>`;
+      });
+      html += '</div></div>';
+      content.innerHTML = html;
+      content.querySelectorAll('.nft-claim-btn').forEach(btn => {
+        btn.addEventListener('click', () => _claimNFT(btn, addr));
+      });
+    } catch (e) {
+      content.innerHTML = `<div class="level-loading">Error: ${e.message}</div>`;
+    }
+  }
+
+  async function _claimNFT(btn, addr) {
+    const tokenId = Number(btn.dataset.tokenid);
+    btn.disabled = true;
+    btn.textContent = 'Processing\u2026';
+    try {
+      const res = await fetch(HTTP_URL + '/api/request-table-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: addr, tokenId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Server error');
+      btn.textContent = 'Minting\u2026';
+      await window.PengPoolWeb3.claimNFT(tokenId, data.allowlistProof);
+      btn.textContent = '\u2713 CLAIMED';
+      btn.style.color = 'var(--g)';
+      btn.style.borderColor = 'rgba(0,201,81,.3)';
+      setTimeout(() => openNFT(), 2500);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'CLAIM';
+      toast(e.message.replace('[PengPool] ', ''), 1);
+    }
+  }
+
+  document.getElementById('btnNFT').addEventListener('click', openNFT);
+  document.getElementById('btnNFTClose').addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('on')) close(); });
+})();

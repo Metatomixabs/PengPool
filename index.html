@@ -41,12 +41,19 @@
       <div class="htitle">Play Pool.<br><span class="g-grad">Bet ETH.</span><br><span class="g">Claim the Pot.</span></div>
       <div class="hdesc">The first on-chain billiards on Abstract. Challenge anyone 1v1, wager ETH — smart contract settles trustlessly.</div>
       <div class="hbtns">
-        <button class="btn-g" id="btnPlay">🎱 PLAY NOW</button>
-        <button class="btn-o" id="btnPractice">PRACTICE FREE</button>
-        <button class="btn-o" id="btnLeaderboard">🏆 LEADERBOARD</button>
-        <button class="btn-o" id="btnRulesLobby">RULES</button>
-        <button class="btn-o" id="btnRecovery">🔧 Recovery</button>
-        <button class="btn-o" id="btnTournament">🏆 TOURNAMENT</button>
+        <div class="hbtns-row">
+          <button class="btn-g" id="btnPlay">🎱 PLAY NOW</button>
+          <button class="btn-o" id="btnPractice">PRACTICE FREE</button>
+          <button class="btn-o" id="btnLeaderboard">🏆 LEADERBOARD</button>
+        </div>
+        <div class="hbtns-row">
+          <button class="btn-o" id="btnRulesLobby">RULES</button>
+          <button class="btn-o" id="btnRecovery">🔧 RECOVERY</button>
+          <button class="btn-o" id="btnNFT">🎱 NFT</button>
+        </div>
+        <div class="hbtns-row">
+          <button class="btn-o" id="btnTournament">🏆 TOURNAMENT</button>
+        </div>
       </div>
     </div>
     <div class="hr">
@@ -297,6 +304,17 @@
   <div id="p1type-lbl"></div><div id="p2type-lbl"></div>
   <div id="tbt"></div><div id="stBet"></div><div id="stPot"></div>
   <div id="stProtocol"></div><div id="stWinner"></div><div id="shotsv"></div>
+</div>
+
+<!-- NFT COLLECTION MODAL -->
+<div id="nftModal" class="mover">
+  <div class="mbox" style="max-width:920px;width:95%;max-height:82vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+      <div class="section-label">🎱 NFT COLLECTION</div>
+      <button class="close-x" id="btnNFTClose">&#x2715;</button>
+    </div>
+    <div id="nftContent"><div class="level-loading">Loading&hellip;</div></div>
+  </div>
 </div>
 
 <!-- LEADERBOARD MODAL -->

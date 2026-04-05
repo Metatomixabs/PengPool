@@ -35,6 +35,8 @@
   "dependencies": {
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
+    "merkletreejs": "^0.6.0",
+    "thirdweb": "^5.119.3",
     "ws": "^8.20.0"
   }
 }
