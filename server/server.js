@@ -217,10 +217,10 @@ async function _resolveOrphanedMatches() {
   try {
     const provider   = contract.runner.provider;
     const toBlock    = await provider.getBlockNumber();
-    const fromBlock  = PENGPOOL_DEPLOY_BLOCK;
+    const fromBlock  = Math.max(0, toBlock - 10000);
     const iface      = new ethers.Interface(DECLARE_ABI);
 
-    console.log(`[OrphanResolver] Querying events from block ${fromBlock} to ${toBlock}`);
+    console.log(`[OrphanResolver] Querying last 10 000 blocks (${fromBlock}–${toBlock})`);
 
     const [createdLogs, declaredLogs, cancelledLogs] = await Promise.all([
       provider.getLogs({ address: PENGPOOL_ADDRESS, topics: [iface.getEvent("MatchCreated").topicHash],   fromBlock, toBlock }),
