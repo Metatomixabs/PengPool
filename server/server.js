@@ -56,11 +56,15 @@ const _limitClaim    = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
 
 // ── On-chain settlement ───────────────────────────────────────────────────────
 
-const PENGPOOL_ADDRESS = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208";
+const PENGPOOL_ADDRESS      = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
+const PENGPOOL_DEPLOY_BLOCK = 17180000; // Abstract Testnet block just before deploy
 const DECLARE_ABI = [
   "function declareWinner(uint256 matchId, address winner) external",
   "function matchPlayers(address addr1, address addr2, uint8 betUSD) external returns (uint256 matchId)",
+  "function cancelMatch(uint256 matchId) external",
   "event MatchCreated(uint256 indexed matchId, address indexed player1, address indexed player2, uint256 betAmount, uint8 betUSD)",
+  "event WinnerDeclared(uint256 indexed matchId, address indexed winner)",
+  "event MatchCancelled(uint256 indexed matchId, address player1, address player2, uint256 amount)",
 ];
 
 let _contract = null;
@@ -194,6 +198,63 @@ async function _matchOnChain(addr1, addr2, betUSD) {
   } catch(e) {
     console.error('[mm] matchPlayers failed:', e.message);
     throw e;
+  }
+}
+
+// ── Orphan resolver ───────────────────────────────────────────────────────────
+// Blocks WebSocket joins until this flag is set to true after startup resolution.
+let _serverReady = false;
+
+async function _resolveOrphanedMatches() {
+  const contract = _getContract();
+  if (!contract) {
+    console.warn("[OrphanResolver] PRIVATE_KEY not set — skipping orphan resolution");
+    return;
+  }
+
+  console.log("[OrphanResolver] Starting orphan match resolution...");
+
+  try {
+    const provider   = contract.runner.provider;
+    const toBlock    = await provider.getBlockNumber();
+    const fromBlock  = PENGPOOL_DEPLOY_BLOCK;
+    const iface      = new ethers.Interface(DECLARE_ABI);
+
+    console.log(`[OrphanResolver] Querying events from block ${fromBlock} to ${toBlock}`);
+
+    const [createdLogs, declaredLogs, cancelledLogs] = await Promise.all([
+      provider.getLogs({ address: PENGPOOL_ADDRESS, topics: [iface.getEvent("MatchCreated").topicHash],   fromBlock, toBlock }),
+      provider.getLogs({ address: PENGPOOL_ADDRESS, topics: [iface.getEvent("WinnerDeclared").topicHash], fromBlock, toBlock }),
+      provider.getLogs({ address: PENGPOOL_ADDRESS, topics: [iface.getEvent("MatchCancelled").topicHash], fromBlock, toBlock }),
+    ]);
+
+    const _parseId = log => iface.parseLog(log).args.matchId.toString();
+
+    const created   = new Set(createdLogs.map(_parseId));
+    const declared  = new Set(declaredLogs.map(_parseId));
+    const cancelled = new Set(cancelledLogs.map(_parseId));
+    const orphans   = [...created].filter(id => !declared.has(id) && !cancelled.has(id));
+
+    console.log(
+      `[OrphanResolver] created=${created.size} declared=${declared.size}` +
+      ` cancelled=${cancelled.size} orphaned=${orphans.length}`
+    );
+
+    for (const matchId of orphans) {
+      try {
+        console.log(`[OrphanResolver] Cancelling match ${matchId}...`);
+        const tx      = await contract.cancelMatch(BigInt(matchId));
+        const receipt = await tx.wait();
+        console.log(`[OrphanResolver] Match ${matchId} cancelled — tx: ${receipt.hash}`);
+      } catch (err) {
+        console.error(`[OrphanResolver] Failed to cancel match ${matchId}:`, err.shortMessage || err.message);
+      }
+    }
+
+    if (orphans.length === 0) console.log("[OrphanResolver] No orphaned matches found.");
+    console.log("[OrphanResolver] Done.");
+  } catch (err) {
+    console.error("[OrphanResolver] Error during resolution:", err.message);
   }
 }
 
@@ -601,6 +662,13 @@ if (_wp) {
 }
 
 wss.on("connection", (ws) => {
+  // Block game connections while orphan resolver is still running at startup
+  if (!_serverReady) {
+    ws.send(JSON.stringify({ type: "server_starting", message: "Server initializing, please retry in a few seconds" }));
+    ws.close();
+    return;
+  }
+
   ws._gameId        = null;
   ws._playerNum     = null;
   ws._authenticated = false;
@@ -1197,4 +1265,10 @@ db.init().catch(e => console.error("[db] init failed:", e.message, e.stack));
 
 httpServer.listen(PORT, () => {
   console.log(`PengPool sync server  →  ws://localhost:${PORT}`);
+  _resolveOrphanedMatches()
+    .catch(err => console.error("[OrphanResolver] Unhandled error:", err.message))
+    .finally(() => {
+      _serverReady = true;
+      console.log("[OrphanResolver] Server ready — accepting WebSocket connections");
+    });
 });

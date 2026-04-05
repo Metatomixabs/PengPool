@@ -31,7 +31,7 @@ async function settleMatch(contract, i) {
 }
 
 async function main() {
-  const PENGPOOL_V2 = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208";
+  const PENGPOOL_V2 = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
   const ABI = [
     "function matchCount() view returns (uint256)",
     "function getMatch(uint256) view returns (tuple(address player1, address player2, uint256 betAmount, uint8 betUSD, uint8 status, address winner, uint256 declaredAt))",

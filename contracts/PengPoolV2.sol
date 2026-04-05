@@ -70,6 +70,7 @@ contract PengPoolV2 is ReentrancyGuard {
     event PriceFeedUpdated(address oldFeed, address newFeed);
     event CommissionWalletUpdated(address oldWallet, address newWallet);
     event MatchmakerUpdated(address oldMaker, address newMaker);
+    event MatchCancelled(uint256 indexed matchId, address player1, address player2, uint256 amount);
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -256,6 +257,29 @@ contract PengPoolV2 is ReentrancyGuard {
         delete deposits[m.player2];
 
         emit WinnerDeclared(matchId, winner);
+    }
+
+    /// @notice Cancels an active match and refunds both players their bet.
+    ///         Used to resolve orphaned matches after a server restart.
+    /// @param  matchId  ID of the match to cancel.
+    function cancelMatch(uint256 matchId) external onlyMatchmaker nonReentrant {
+        Match storage m = matches[matchId];
+        require(m.status == MatchStatus.ACTIVE, "Match not active");
+        require(m.betAmount > 0, "No funds to return");
+
+        uint256 amount = m.betAmount;
+        m.betAmount = 0;
+        m.status = MatchStatus.FINISHED;
+        m.winner = address(0);
+
+        delete deposits[m.player1];
+        delete deposits[m.player2];
+
+        (bool s1,) = m.player1.call{value: amount}("");
+        (bool s2,) = m.player2.call{value: amount}("");
+        require(s1 && s2, "Refund failed");
+
+        emit MatchCancelled(matchId, m.player1, m.player2, amount);
     }
 
     // -------------------------------------------------------------------------

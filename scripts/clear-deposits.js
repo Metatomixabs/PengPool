@@ -2,7 +2,7 @@
 const hre = require("hardhat");
 
 async function main() {
-  const PENGPOOL_V2 = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208";
+  const PENGPOOL_V2 = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
   const ABI = [
     "function getDeposit(address) view returns (tuple(uint256 amount, uint8 betUSD, bool matched))",
     "function withdrawDeposit() external",

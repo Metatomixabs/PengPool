@@ -19,7 +19,7 @@
 
   // ── Contrato ──────────────────────────────────────────────────────────────
 
-  var PENGPOOL_ADDRESS = "0x8F16FaBc37E945573da2e68ee9d4f7eBeEECD208";
+  var PENGPOOL_ADDRESS = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
 
   var PENGPOOL_ABI = [
     // deposit(betUSD) — player deposits bet to enter queue
