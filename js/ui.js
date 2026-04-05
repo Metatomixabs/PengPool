@@ -27,6 +27,7 @@ let _mmRange = 5;
 let _mmOpponentAlias = '';
 let _mmOpponentAddr  = '';
 let _notifWs = null;
+let _notifWsAuthPromise = null;
 let _wsSeq = 0; // outgoing message sequence number
 let _lastKnownBallCount = null; // tracks ball count for consistency checks
 let _wsPendingMsg  = null; // join message deferred until _ws auth completes
@@ -77,8 +78,13 @@ function _clearSessionToken() {
 }
 
 function _connectNotifWs(addr) {
-  if (_notifWs && _notifWs.readyState === WebSocket.OPEN) return;
+  if (_notifWs && _notifWs.readyState === WebSocket.OPEN) {
+    return _notifWsAuthPromise || Promise.resolve();
+  }
   if (_notifWs) { try { _notifWs.close(); } catch(_){} }
+  let _resolve, _reject;
+  _notifWsAuthPromise = new Promise((res, rej) => { _resolve = res; _reject = rej; });
+  let _authUsedToken = false;
   _notifWs = new WebSocket(WS_URL);
   _notifWs.onopen = () => {
     console.log('[notifWs] connected for', addr.slice(0,8));
@@ -94,30 +100,25 @@ function _connectNotifWs(addr) {
       try {
         const token = _getSessionToken();
         if (token) {
-          // Token already valid — no popup needed
+          _authUsedToken = true;
           _notifWs.send(JSON.stringify({ type: 'auth_token', addr, token }));
         } else if (w?.isConnected()) {
-          // First login of the session — show the signing popup once here,
-          // before matchmaking or any other action
           const signature = await w.signMessage(_authMessage(msg.nonce));
           _notifWs.send(JSON.stringify({ type: 'auth_response', addr, signature }));
         } else {
-          // Wallet not connected yet (edge case) — skip for notif socket only
           _notifWs.send(JSON.stringify({ type: 'auth_skip' }));
+          _resolve();
         }
         _notifWs.send(_notifJoin);
       } catch(e) {
         console.error('[notifWs] Auth error:', e.message);
         _clearSessionToken();
-        // Fallback: notif socket uses skip so tournament notifications still arrive
-        try { _notifWs.send(JSON.stringify({ type: 'auth_skip' })); _notifWs.send(_notifJoin); } catch(_) {}
+        _reject(e);
       }
       return;
     }
-    if (msg.type === 'auth_token_issued') {
-      _saveSessionToken(msg.token);
-      return;
-    }
+    if (msg.type === 'auth_ok') { _resolve(); return; }
+    if (msg.type === 'auth_token_issued') { _saveSessionToken(msg.token); _resolve(); return; }
     if (msg.type === 'tournament_match_ready')        _tOnMatchReady(msg);
     else if (msg.type === 'tournament_prize_available') _tOnPrizeAvailable(msg);
     else if (msg.type === 'tournament_player_timeout') {
@@ -131,13 +132,25 @@ function _connectNotifWs(addr) {
     else if (msg.type === 'tournament_finished') _tOnFinished(msg);
   };
   _notifWs.onerror = () => console.warn('[notifWs] error');
-  _notifWs.onclose = () => {
+  _notifWs.onclose = (evt) => {
+    const wasStaleToken = _authUsedToken && evt.code === 1008;
     _notifWs = null;
-    setTimeout(() => {
-      const w = window.PengPoolWeb3;
-      if (w && w.isConnected()) _connectNotifWs(w.getAddress());
-    }, 5000);
+    _reject(new Error('notifWs closed'));
+    if (wasStaleToken) {
+      _clearSessionToken();
+      console.warn('[notifWs] stale token — retrying with signature');
+      setTimeout(() => {
+        const w = window.PengPoolWeb3;
+        if (w && w.isConnected()) _connectNotifWs(w.getAddress());
+      }, 500);
+    } else {
+      setTimeout(() => {
+        const w = window.PengPoolWeb3;
+        if (w && w.isConnected()) _connectNotifWs(w.getAddress());
+      }, 5000);
+    }
   };
+  return _notifWsAuthPromise;
 }
 
 // ── Tournament state ───────────────────────────────────────────
@@ -1938,10 +1951,11 @@ async function _onWager(){
   if(!w.isConnected()){
     const btn=document.getElementById('btnConnectWallet');
     btn.textContent='Connecting\u2026';btn.disabled=true;
-    try{const{agw}=await w.connectWallet();_setWBtn(agw);if(!getStoredUsername(agw)){_showUsernameModal(agw,(name)=>{_setWBtn(agw);toast('Welcome, '+(name||shortenAddr(agw))+'!');_openMM();});}else{toast('Connected! Choose a game.');_openMM();}}
+    try{const{agw}=await w.connectWallet();_setWBtn(agw);if(!getStoredUsername(agw)){_showUsernameModal(agw,async(name)=>{_setWBtn(agw);toast('Welcome, '+(name||shortenAddr(agw))+'!');await(_notifWsAuthPromise||Promise.resolve()).catch(()=>{});_openMM();});}else{toast('Connected! Choose a game.');await(_notifWsAuthPromise||Promise.resolve()).catch(()=>{});_openMM();}}
     catch(e){btn.textContent='🔌 CONNECT WALLET';btn.disabled=false;toast(e.message.replace('[PengPool] ',''),1);}
     return;
   }
+  await(_notifWsAuthPromise||Promise.resolve()).catch(()=>{});
   _openMM();
 }
 

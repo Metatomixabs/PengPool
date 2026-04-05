@@ -706,6 +706,7 @@ wss.on("connection", (ws) => {
         ws._authenticated = true;
         ws._addr = addr.toLowerCase();
         console.log(`[auth] token auth: ${addr.slice(0,8)}…`);
+        _send(ws, { type: 'auth_ok' });
         const tBuf = ws._msgBuffer; ws._msgBuffer = [];
         for (const r of tBuf) process.nextTick(() => ws.emit("message", r));
         return;
