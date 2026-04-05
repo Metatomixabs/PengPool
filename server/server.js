@@ -785,7 +785,7 @@ wss.on("connection", (ws) => {
       }
       queue.set(ws._addr, {
         ws, addr: ws._addr, alias: ws._alias || ws._addr,
-        level: Number(msg.level) || 1,
+        level: (() => { const l = Number(msg.level); return (isFinite(l) && l >= 0 && l <= 1000) ? l : 1; })(),
         betUSD: betKey, joinedAt: Date.now(), range: 5
       });
       console.log(`[mm] ${ws._alias} joined $${betKey} queue (level ${msg.level}) — queue size: ${queue.size}`);
@@ -813,6 +813,7 @@ wss.on("connection", (ws) => {
       const p2 = ws._mmPendingP2;
       if (!p2) return;
       ws._mmPendingP2 = null;
+      if (!/^\d+$/.test(String(msg.gameId))) return;
       const gameId = String(msg.gameId);
       console.log(`[mm] P1 created game ${gameId} — notifying P2`);
       _send(p2.ws, { type: 'mm_join_game', gameId, opponentAlias: ws._alias, opponentAddr: ws._addr });
@@ -821,6 +822,8 @@ wss.on("connection", (ws) => {
 
     // ── join ──────────────────────────────────────────────────────────────
     if (msg.type === "join") {
+      const _gid = String(msg.gameId);
+      if (!/^\d+$/.test(_gid) && !_gid.startsWith('notif_')) return;
       const gameId = String(msg.gameId);
       const addr   = (msg.addr || "").toLowerCase();
 
@@ -1084,6 +1087,7 @@ wss.on("connection", (ws) => {
     else if (msg.type === "sound") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
+      if (!["collision", "rail", "pocket"].includes(msg.sound)) return;
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       const soundMsg = { type: "sound", sound: msg.sound, param: msg.param };
       _send(other, soundMsg);
