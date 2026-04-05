@@ -286,6 +286,11 @@
       </div>
     </div>
   </div>
+  <div id="zoom-ctrl">
+    <button id="zoom-out" class="zoom-btn" title="Zoom out">&#x2212;</button>
+    <span id="zoom-label">100%</span>
+    <button id="zoom-in" class="zoom-btn" title="Zoom in">&#x2B;</button>
+  </div>
 </div>
 <div style="display:none">
   <div id="p1type-lbl"></div><div id="p2type-lbl"></div>
@@ -444,6 +449,42 @@
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/bot.js"></script>
+<script>
+(function () {
+  var LEVELS = [70, 85, 100, 115, 130];
+  var W = 800, H = 500;
+  var KEY = 'pp_zoom';
+  var idx = 2; // default: 100%
+
+  var saved = parseInt(localStorage.getItem(KEY), 10);
+  if (!isNaN(saved)) {
+    var fi = LEVELS.indexOf(saved);
+    if (fi !== -1) idx = fi;
+  }
+
+  function apply() {
+    var pct    = LEVELS[idx];
+    var canvas = document.getElementById('pool');
+    if (canvas) {
+      canvas.style.width  = (W * pct / 100) + 'px';
+      canvas.style.height = (H * pct / 100) + 'px';
+    }
+    document.getElementById('zoom-label').textContent = pct + '%';
+    document.getElementById('zoom-out').disabled = idx === 0;
+    document.getElementById('zoom-in').disabled  = idx === LEVELS.length - 1;
+    localStorage.setItem(KEY, pct);
+  }
+
+  document.getElementById('zoom-out').addEventListener('click', function () {
+    if (idx > 0) { idx--; apply(); }
+  });
+  document.getElementById('zoom-in').addEventListener('click', function () {
+    if (idx < LEVELS.length - 1) { idx++; apply(); }
+  });
+
+  apply();
+}());
+</script>
 
 <!-- USERNAME MODAL -->
 <div id="usernameModal" class="umodal">
