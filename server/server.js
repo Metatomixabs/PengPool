@@ -925,6 +925,7 @@ wss.on("connection", (ws) => {
           return;
         }
         if (!room.spectators) room.spectators = new Map();
+        if (room.spectators.size >= 20) { ws.close(); return; }
         const specId = Date.now() + '_' + Math.random().toString(36).slice(2);
         ws._specId  = specId;
         ws._gameId  = gameId;
