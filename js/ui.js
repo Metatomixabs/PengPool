@@ -2296,8 +2296,6 @@ window._debugWithdrawDeposit = async function() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Server error');
-      btn.textContent = 'Minting\u2026';
-      await window.PengPoolWeb3.claimNFT(tokenId, data.allowlistProof);
       btn.textContent = '\u2713 CLAIMED';
       btn.style.color = 'var(--g)';
       btn.style.borderColor = 'rgba(0,201,81,.3)';

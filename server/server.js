@@ -23,12 +23,6 @@ const { ethers } = require("ethers");
 const crypto    = require("crypto");
 const db        = require("./db");
 
-// Thirdweb SDK — NFT allowlist management
-const { createThirdwebClient, getContract: twGetContract, sendTransaction: twSendTransaction, defineChain, waitForReceipt } = require("thirdweb");
-const { privateKeyToAccount } = require("thirdweb/wallets");
-const { getClaimConditions, setClaimConditions } = require("thirdweb/extensions/erc1155");
-const { download } = require("thirdweb/storage");
-const { MerkleTree } = require("merkletreejs");
 
 const PORT = process.env.PORT || 8080;
 
@@ -68,7 +62,6 @@ const PENGPOOL_ADDRESS      = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
 const PENGPOOL_DEPLOY_BLOCK = 17180000; // Abstract Testnet block just before deploy
 const TABLE_NFT_CONTRACT    = "0x84f038171F43c065d28A47bb1E15f33a4C7BF455";
 const TABLE_NFT_LEVELS      = [10, 20, 30, 40, 50]; // required player level per tokenId 0-4
-const _abstractTestnet      = defineChain(11124);
 const DECLARE_ABI = [
   "function declareWinner(uint256 matchId, address winner) external",
   "function matchPlayers(address addr1, address addr2, uint8 betUSD) external returns (uint256 matchId)",
@@ -80,61 +73,6 @@ const DECLARE_ABI = [
 
 let _contract = null;
 
-// ── Thirdweb SDK setup (NFT allowlist management) ─────────────────────────────
-let _twClient = null, _twAccount = null;
-function _getThirdweb() {
-  const secretKey  = process.env.THIRDWEB_SECRET_KEY;
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!secretKey || !privateKey) return null;
-  if (!_twClient) {
-    _twClient  = createThirdwebClient({ secretKey });
-    _twAccount = privateKeyToAccount({ client: _twClient, privateKey: "0x" + privateKey.replace(/^0x/, "") });
-  }
-  return { client: _twClient, account: _twAccount };
-}
-
-// keccak256 compatible con merkletreejs (Buffer → Buffer)
-function _keccak256Buf(buf) {
-  return Buffer.from(ethers.keccak256(buf).slice(2), "hex");
-}
-
-// Genera merkle proof con el mismo formato que Thirdweb DropERC1155:
-// leaf = keccak256(abi.encodePacked(address, quantityLimit, pricePerToken, currency))
-// tree: sortPairs: true  (idéntico a la config interna del SDK de Thirdweb)
-function _buildAllowlistProof(snapshot, wallet, defaultPrice, defaultCurrency) {
-  const entries = snapshot.map(e => ({
-    address:  (typeof e === "string" ? e : e.address),
-    maxClaim: (typeof e === "string" ? ethers.MaxUint256 : BigInt(e.maxClaimable || 1)),
-    price:    (e.price  != null ? BigInt(e.price)  : defaultPrice),
-    currency: (e.currency || defaultCurrency),
-  }));
-
-  const leafBufs = entries.map(e => Buffer.from(
-    ethers.solidityPackedKeccak256(
-      ["address", "uint256", "uint256", "address"],
-      [e.address, e.maxClaim, e.price, e.currency]
-    ).slice(2), "hex"
-  ));
-
-  const tree = new MerkleTree(leafBufs, _keccak256Buf, { sortPairs: true });
-
-  const me = entries.find(e => e.address.toLowerCase() === wallet.toLowerCase());
-  if (!me) return null;
-
-  const myLeaf = Buffer.from(
-    ethers.solidityPackedKeccak256(
-      ["address", "uint256", "uint256", "address"],
-      [me.address, me.maxClaim, me.price, me.currency]
-    ).slice(2), "hex"
-  );
-
-  return {
-    proof:                  tree.getHexProof(myLeaf),
-    quantityLimitPerWallet: me.maxClaim.toString(),
-    pricePerToken:          me.price.toString(),
-    currency:               me.currency,
-  };
-}
 
 function _getContract() {
   if (_contract) return _contract;
@@ -159,6 +97,16 @@ function _getWalletAndProvider() {
   _provider = new ethers.JsonRpcProvider(rpc);
   _wallet   = new ethers.Wallet(key, _provider);
   return { wallet: _wallet, provider: _provider };
+}
+
+const TABLE_NFT_MINT_ABI = ["function mintTo(address to, uint256 tokenId, string uri, uint256 amount) external"];
+let _nftContract = null;
+function _getNFTContract() {
+  if (_nftContract) return _nftContract;
+  const wp = _getWalletAndProvider();
+  if (!wp) return null;
+  _nftContract = new ethers.Contract(TABLE_NFT_CONTRACT, TABLE_NFT_MINT_ABI, wp.wallet);
+  return _nftContract;
 }
 
 // gameIds already settled or in-progress — avoid double-settling
@@ -669,64 +617,15 @@ const httpServer = http.createServer(async (req, res) => {
         if (player.level < required) {
           _safeEnd(403, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: `Level ${required} required (you are level ${player.level})` })); return;
         }
-        const tw = _getThirdweb();
-        if (!tw) {
+        const nft = _getNFTContract();
+        if (!nft) {
           _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Server misconfigured" })); return;
         }
-        const nftContract = twGetContract({ client: tw.client, chain: _abstractTestnet, address: TABLE_NFT_CONTRACT });
-
-        // 1. Leer claim conditions actuales del token
-        const conditions = await getClaimConditions({ contract: nftContract, tokenId: BigInt(tid) });
-        if (!conditions.length) {
-          _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "No claim conditions configured" })); return;
-        }
-        const phase = conditions[0];
-
-        // 2. Descargar snapshot existente desde IPFS (Thirdweb storage)
-        let snapshot = [];
-        if (phase.metadata && phase.metadata.startsWith("ipfs://")) {
-          try {
-            const r = await download({ client: tw.client, uri: phase.metadata });
-            const data = await r.json();
-            snapshot = Array.isArray(data) ? data : [];
-          } catch (e) {
-            console.warn(`[table-claim] Could not fetch existing snapshot: ${e.message}`);
-          }
-        }
-
-        // 3. Añadir wallet si no está ya en la allowlist
-        const alreadyIn = snapshot.some(e =>
-          (typeof e === "string" ? e : e.address).toLowerCase() === wallet.toLowerCase()
-        );
-        if (!alreadyIn) snapshot.push({ address: wallet, maxClaimable: "1" });
-
-        // 4. Actualizar claim conditions — el SDK reconstruye el merkle tree y lo sube a IPFS
-        const tx = setClaimConditions({
-          contract: nftContract,
-          tokenId:  BigInt(tid),
-          phases: [{
-            startTime:             new Date(Number(phase.startTimestamp) * 1000),
-            maxClaimableSupply:    phase.maxClaimableSupply,
-            maxClaimablePerWallet: phase.quantityLimitPerWallet || 1n,
-            snapshot,
-            price:                 0,
-            currency:              phase.currency,
-          }],
-          resetClaimEligibility: false,
-        });
-        const { transactionHash } = await twSendTransaction({ transaction: tx, account: tw.account });
-        await waitForReceipt({ client: tw.client, chain: _abstractTestnet, transactionHash });
-        console.log(`[table-claim] Allowlist updated — tx: ${transactionHash}`);
-
-        // 5. Generar merkle proof localmente (misma lógica que el SDK de Thirdweb)
-        const allowlistProof = _buildAllowlistProof(snapshot, wallet, phase.pricePerToken, phase.currency);
-        if (!allowlistProof) {
-          _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Proof generation failed" })); return;
-        }
-
-        console.log(`[table-claim] ${wallet.slice(0,10)}… → token ${tid} proof ready ✓`);
+        const tx = await nft.mintTo(wallet, tid, "", 1);
+        await tx.wait();
+        console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${tx.hash}`);
         res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-        res.end(JSON.stringify({ success: true, allowlistProof }));
+        res.end(JSON.stringify({ success: true }));
       } catch (e) {
         console.error(`[table-claim] Error: ${e.message}`);
         _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
