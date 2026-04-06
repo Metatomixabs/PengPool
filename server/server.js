@@ -846,6 +846,26 @@ wss.on("connection", (ws) => {
         aliases.set(ws._addr, ws._alias);
       }
       if (!ws._addr) { _send(ws, { type: 'mm_error', reason: 'not_identified' }); return; }
+
+      const tableId = (msg.tableId !== null && msg.tableId !== undefined)
+        ? Number(msg.tableId) : null;
+      if (tableId !== null && Number.isInteger(tableId) && tableId >= 0 && tableId <= 4) {
+        try {
+          const wp = _getWalletAndProvider();
+          if (wp) {
+            const nftRead = new ethers.Contract(TABLE_NFT_CONTRACT, TABLE_NFT_BALANCE_ABI, wp.provider);
+            const balance = await nftRead.balanceOf(ws._addr, tableId);
+            if (balance === 0n) {
+              _send(ws, { type: 'mm_error', reason: 'no_table_nft' });
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('[mm] NFT check failed:', e.message);
+          // Fallo abierto: si el RPC falla no bloqueamos al jugador
+        }
+      }
+
       const betKey = String(msg.betUSD) === '5' ? '5' : '1';
       const queue  = mmQueues[betKey];
       // Remove from other queue if present

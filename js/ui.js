@@ -396,6 +396,8 @@ async function _mmOnMessage(msg) {
   else if (msg.type === 'mm_error') {
     if (msg.reason === 'deposit_not_found') {
       toast('Deposit not detected on-chain. Please try again.', 3);
+    } else if (msg.reason === 'no_table_nft') {
+      toast('No tienes el NFT de esta mesa', 1);
     } else {
       toast('Matchmaking error: ' + msg.reason, 1);
     }
@@ -451,7 +453,8 @@ async function _enterQueue(betUSD) {
     betUSD: _mmBetKey,
     level:  _myLevel,
     addr:   addr,
-    alias:  getStoredUsername(addr) || shortenAddr(addr)
+    alias:  getStoredUsername(addr) || shortenAddr(addr),
+    tableId: window._getSelectedTableTokenId()
   };
   if (_mmWs && _mmWs.readyState === WebSocket.OPEN) {
     // Already open and authenticated — send immediately
@@ -1968,6 +1971,7 @@ function _setWBtn(addr){
   const name=getStoredUsername(addr);if(name)_registerAlias(addr,name);
   _checkRejoin(addr);
   _connectNotifWs(addr);
+  if(typeof window._refreshTableLocks==='function') window._refreshTableLocks(addr);
 }
 
 async function _checkRejoin(addr){
@@ -2181,14 +2185,27 @@ function _updCd(){const e=document.getElementById('mmCountdownBadge');if(e)e.tex
 // ── Table selector ────────────────────────────────────────────────────────────
 (function(){
   const STORAGE_KEY='pengpool_table';
+  const STORAGE_KEY_TID='pengpool_table_tokenid';
   const mesaImg=document.getElementById('mesa-img');
   const overlay=document.getElementById('tableModal');
   const open=()=>{updateThumbs();overlay.classList.add('on');};
   const close=()=>overlay.classList.remove('on');
 
-  function applyTable(src){
+  function applyTable(src, tokenId){
     mesaImg.src=src;
-    localStorage.setItem(STORAGE_KEY,src);
+    localStorage.setItem(STORAGE_KEY, src);
+    if (tokenId !== '' && tokenId !== null && tokenId !== undefined) {
+      localStorage.setItem(STORAGE_KEY_TID, String(tokenId));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_TID);
+    }
+    updateThumbs();
+  }
+
+  function applyGreenDefault(){
+    mesaImg.src='assets/pooltable/t_green.png';
+    localStorage.setItem(STORAGE_KEY, 'assets/pooltable/t_green.png');
+    localStorage.removeItem(STORAGE_KEY_TID);
     updateThumbs();
   }
 
@@ -2199,15 +2216,53 @@ function _updCd(){const e=document.getElementById('mmCountdownBadge');if(e)e.tex
     });
   }
 
+  window._getSelectedTableTokenId = function() {
+    const tid = localStorage.getItem(STORAGE_KEY_TID);
+    return (tid !== null && tid !== '') ? Number(tid) : null;
+  };
+
+  window._refreshTableLocks = async function(addr) {
+    const w = window.PengPoolWeb3;
+    if (!w) return;
+    const thumbs = document.querySelectorAll('.table-thumb[data-tokenid]');
+    for (const el of thumbs) {
+      const tid = el.dataset.tokenid;
+      if (tid === '') continue; // mesa verde, siempre libre
+      const balance = await w.nftBalanceOf(addr, Number(tid)).catch(() => 0n);
+      const owns = balance > 0n;
+      el.classList.toggle('locked', !owns);
+      // Si la mesa actualmente seleccionada está bloqueada, resetear a verde
+      if (!owns && el.classList.contains('selected')) {
+        applyGreenDefault();
+        toast('Mesa reseteada — no tienes el NFT', 1);
+      }
+    }
+  };
+
   // Apply saved table on load
   const saved=localStorage.getItem(STORAGE_KEY);
   if(saved) mesaImg.src=saved;
+
+  // Migración: si no hay tokenId guardado, derivarlo del src existente
+  if (localStorage.getItem(STORAGE_KEY_TID) === null && saved) {
+    const SRC_TO_TID = {
+      't_blue.png': '0', 't_red.png': '1', 't_purple.png': '2',
+      't_black.png': '3', 't_gold.png': '4'
+    };
+    const fname = saved.split('/').pop();
+    const derived = SRC_TO_TID[fname];
+    if (derived !== undefined) localStorage.setItem(STORAGE_KEY_TID, derived);
+    // t_green.png → no se setea, queda null = sin verificación ✓
+  }
 
   document.getElementById('btnTable').addEventListener('click',open);
   document.getElementById('btnTableClose').addEventListener('click',close);
   overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
   document.querySelectorAll('.table-thumb').forEach(el=>{
-    el.addEventListener('click',()=>applyTable(el.dataset.table));
+    el.addEventListener('click',()=>{
+      if(el.classList.contains('locked')){ toast('Necesitas el NFT para esta mesa', 1); return; }
+      applyTable(el.dataset.table, el.dataset.tokenid);
+    });
   });
   updateThumbs();
 })();
