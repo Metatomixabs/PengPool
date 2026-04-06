@@ -295,9 +295,12 @@
     </div>
   </div>
   <div id="zoom-ctrl">
-    <button id="zoom-out" class="zoom-btn" title="Zoom out">&#x2212;</button>
-    <span id="zoom-label">100%</span>
-    <button id="zoom-in" class="zoom-btn" title="Zoom in">&#x2B;</button>
+    <span id="zoom-tag">ZOOM</span>
+    <div id="zoom-row">
+      <button id="zoom-out" class="zoom-btn" title="Zoom out">&#x2212;</button>
+      <span id="zoom-label">100%</span>
+      <button id="zoom-in" class="zoom-btn" title="Zoom in">&#x2B;</button>
+    </div>
   </div>
 </div>
 <div style="display:none">
@@ -470,7 +473,7 @@
 <script src="js/bot.js"></script>
 <script>
 (function () {
-  var LEVELS = [70, 85, 100, 115, 130];
+  var LEVELS = [70, 85, 100, 115, 130, 145];
   var W = 800, H = 500;
   var KEY = 'pp_zoom';
   var idx = 2; // default: 100%

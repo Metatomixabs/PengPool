@@ -33,6 +33,18 @@ body {
   overflow: hidden;
 }
 
+/* Scale UI screens for 100% system display scale.
+   #game is excluded — it contains the canvas & overlay whose
+   coordinate systems must not be affected by zoom. */
+#intro, #lobby, #matchmaking, #mmSearching, #mmWaiting,
+#tournamentLobby, #tournamentDetail,
+#nftModal, #pracModal, #usernameModal,
+#toast, #ff,
+#spectatorBadge, #game-bg, #waitingOverlay,
+#gnav, #gbody, #zoom-ctrl {
+  zoom: 1.25;
+}
+
 /* ── SCREENS ── */
 /* Key fix: game screen uses visibility+opacity instead of display:none
    so canvas always has real dimensions and the render loop works */
@@ -575,12 +587,12 @@ nav {
   clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
 }
 .gbk {
-  background: transparent;
-  border: 1px solid var(--b2);
-  color: var(--t2);
+  background: rgba(120, 200, 255, 0.06);
+  border: 1px solid rgba(120, 200, 255, 0.28);
+  color: var(--t);
   font-family: "Space Mono", monospace;
-  font-size: 9px;
-  padding: 5px 12px;
+  font-size: 10px;
+  padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
@@ -589,6 +601,15 @@ nav {
 .gbk:hover {
   border-color: var(--g);
   color: var(--g);
+  background: rgba(0, 201, 81, 0.08);
+}
+#btn-bg, #btnTable {
+  background: rgba(0, 201, 81, 0.1);
+  border-color: rgba(0, 201, 81, 0.45);
+  color: var(--g);
+}
+#btn-bg:hover, #btnTable:hover {
+  background: rgba(0, 201, 81, 0.2);
 }
 #volSlider {
   -webkit-appearance: none;
@@ -2343,22 +2364,35 @@ canvas {
   bottom: 16px;
   right: 16px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 3px 6px;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--g);
+  border-radius: 10px;
+  padding: 6px 8px;
   z-index: 200;
   user-select: none;
+}
+#zoom-tag {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--g);
+  line-height: 1;
+}
+#zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .zoom-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 16px;
-  width: 22px;
-  height: 22px;
+  color: var(--g);
+  font-size: 18px;
+  width: 26px;
+  height: 26px;
   cursor: pointer;
   border-radius: 50%;
   display: flex;
@@ -2366,20 +2400,20 @@ canvas {
   justify-content: center;
   padding: 0;
   line-height: 1;
-  transition: color 0.15s;
+  transition: background 0.15s;
   font-family: inherit;
 }
 .zoom-btn:hover:not(:disabled) {
-  color: var(--g);
+  background: rgba(0, 201, 81, 0.18);
 }
 .zoom-btn:disabled {
   opacity: 0.25;
   cursor: default;
 }
 #zoom-label {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  min-width: 32px;
+  font-size: 12px;
+  color: #fff;
+  min-width: 36px;
   text-align: center;
   font-family: 'Space Mono', monospace;
   letter-spacing: 0.5px;
