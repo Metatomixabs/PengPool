@@ -1723,16 +1723,13 @@ function ballSegmentCollision(b, x1, y1, x2, y2) {
 }
 
 let _lastLoopTime = 0;
-function loop(ts) {
-  const frameDelta = ts - _lastLoopTime;
-  _lastLoopTime = ts;
-  cx.clearRect(0, 0, W, H);
-  drawLast8PocketIndicator();
-  drawBallInHandLine();
-  cx.fillStyle = "rgba(255,255,255,0.9)";
-  cx.beginPath();
-  cx.arc(mouseX, mouseY, 2, 0, Math.PI * 2);
-  cx.fill();
+let _rafId = null;
+let _hiddenLoopTimer = null;
+const _HIDDEN_TICK_MS = 16; // ~60 fps physics while tab is hidden
+
+// Physics + WS sync + interpolation + trail update — no render.
+// Called from loop() when visible and from _hiddenLoop() when tab is hidden.
+function _physTick() {
   const was = moving;
   moving = phys();
   if (was && !moving) shotEnd();
@@ -1746,7 +1743,7 @@ function loop(ts) {
   ) {
     window._wsOnFrame(balls);
   }
-  // Interpolate toward remote targets when watching opponent's shot
+  // Interpolate toward remote targets when watching opponent's shot.
   if (
     _remoteTargets &&
     typeof gameMode !== "undefined" &&
@@ -1764,7 +1761,6 @@ function loop(ts) {
         const dy = (t.y - b.y) * _LERP;
         b.x += dx;
         b.y += dy;
-        // Update rotation using the actual movement applied this frame (mirrors phys() logic)
         if (b.id !== 0) {
           const spd = Math.sqrt(dx * dx + dy * dy);
           if (spd > 0.05) {
@@ -1780,6 +1776,27 @@ function loop(ts) {
     }
   }
   updateTrails();
+}
+
+// Runs when the tab is hidden: physics only, no render, via setTimeout.
+function _hiddenLoop() {
+  if (!document.hidden) return; // visibility change beat us here — stop
+  _physTick();
+  window._lastLoopTs = Date.now();
+  _hiddenLoopTimer = setTimeout(_hiddenLoop, _HIDDEN_TICK_MS);
+}
+
+function loop(ts) {
+  const frameDelta = ts - _lastLoopTime;
+  _lastLoopTime = ts;
+  cx.clearRect(0, 0, W, H);
+  drawLast8PocketIndicator();
+  drawBallInHandLine();
+  cx.fillStyle = "rgba(255,255,255,0.9)";
+  cx.beginPath();
+  cx.arc(mouseX, mouseY, 2, 0, Math.PI * 2);
+  cx.fill();
+  _physTick();
   drawTrails();
   // DEBUG: visualize cushions
   if (DEBUG_CUSHIONS) {
@@ -1843,8 +1860,19 @@ function loop(ts) {
   drawCue(); // draws on overlay canvas
   updateParticles();
   window._lastLoopTs = Date.now();
-  requestAnimationFrame(loop);
+  _rafId = requestAnimationFrame(loop);
 }
+
+// Switch between rAF (tab visible) and setTimeout fallback (tab hidden).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+    _hiddenLoop();
+  } else {
+    if (_hiddenLoopTimer !== null) { clearTimeout(_hiddenLoopTimer); _hiddenLoopTimer = null; }
+    _rafId = requestAnimationFrame(loop);
+  }
+});
 
 // ── Multiplayer sync helpers ──────────────────────────────────────────────────
 
