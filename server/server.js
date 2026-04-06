@@ -102,6 +102,7 @@ function _getWalletAndProvider() {
 const TABLE_NFT_MINT_ABI = [
   "function claim(address _receiver, uint256 _tokenId, uint256 _quantity, address _currency, uint256 _pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) _allowlistProof, bytes _data) external payable"
 ];
+const TABLE_NFT_BALANCE_ABI = ["function balanceOf(address account, uint256 id) external view returns (uint256)"];
 let _nftContract = null;
 function _getNFTContract() {
   if (_nftContract) return _nftContract;
@@ -619,17 +620,23 @@ const httpServer = http.createServer(async (req, res) => {
         if (player.level < required) {
           _safeEnd(403, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: `Level ${required} required (you are level ${player.level})` })); return;
         }
-        const nft = _getNFTContract();
-        if (!nft) {
+        const wp = _getWalletAndProvider();
+        if (!wp) {
           _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Server misconfigured" })); return;
         }
+        const nftRead = new ethers.Contract(TABLE_NFT_CONTRACT, TABLE_NFT_BALANCE_ABI, wp.provider);
+        const balance = await nftRead.balanceOf(wallet, tid);
+        if (balance > 0n) {
+          _safeEnd(403, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Already owns this table" })); return;
+        }
+        const nft = _getNFTContract();
         const tx = await nft.claim(
           wallet,
           tid,
           1,
           "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
           0,
-          { proof: [], quantityLimitPerWallet: 0, pricePerToken: 0, currency: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" },
+          { proof: [], quantityLimitPerWallet: ethers.MaxUint256, pricePerToken: 0, currency: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" },
           "0x"
         );
         await tx.wait();
