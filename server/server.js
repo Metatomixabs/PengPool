@@ -1173,6 +1173,16 @@ wss.on("connection", (ws) => {
       _sendSpectators(ws._gameId, cueMsg);
     }
 
+    else if (msg.type === "chat") {
+      const room = rooms.get(ws._gameId);
+      if (!room) return;
+      const text = String(msg.text || '').trim().slice(0, 200);
+      if (!text) return;
+      const alias = ws._alias || (ws._playerNum === 1 ? room.p1alias : room.p2alias) || `P${ws._playerNum}`;
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      _send(other, { type: 'chat', from: alias, text });
+    }
+
     // ── sound  (shooter relays collision/rail/pocket sounds to opponent) ──
     else if (msg.type === "sound") {
       const room = rooms.get(ws._gameId);

@@ -342,6 +342,7 @@ async function _mmOnMessage(msg) {
     _saveActiveGame(currentGameId, 1, addr);
     toast('Match found! Connecting…');
     show('game');
+    const _cb1 = document.getElementById('chat-box'); if (_cb1) _cb1.style.display = 'flex';
     _showWaitingOverlay();
     _connectWS(currentGameId, 1, addr);
   }
@@ -374,6 +375,7 @@ async function _mmOnMessage(msg) {
     _saveActiveGame(currentGameId, 2, addr);
     toast('Match found! Connecting…');
     show('game');
+    const _cb2 = document.getElementById('chat-box'); if (_cb2) _cb2.style.display = 'flex';
     _showWaitingOverlay();
     _connectWS(currentGameId, 2, addr);
   }
@@ -690,6 +692,10 @@ function _wsOnMessage(msg) {
     _matchReady = true;
     toast('Opponent reconnected!');
   }
+  else if (msg.type === 'chat') {
+    _chatAppend(msg.from, msg.text, false);
+  }
+
   else if (msg.type === 'settled') {
     const sub = document.getElementById('msub');
     if (!sub) return;
@@ -925,6 +931,7 @@ function _tOnMatchReady(msg) {
     myPlayerNum     = 1; // server corrects this via addr matching on join
     gameMode        = 'multiplayer';
     show('game');
+    const _cbt = document.getElementById('chat-box'); if (_cbt) _cbt.style.display = 'flex';
     _showWaitingOverlay();
     _connectWS(msg.roomId, 1, addr);
   };
@@ -1867,6 +1874,8 @@ function _resetGS(alreadySentLeave){
   if(_ws){try{_ws.close();}catch(_){}  _ws=null;}
   const p1lbl=document.getElementById('p1label');const p2lbl=document.getElementById('p2label');
   if(p1lbl)p1lbl.textContent='Player 1';if(p2lbl)p2lbl.textContent='Player 2';
+  const _chatBox=document.getElementById('chat-box');if(_chatBox)_chatBox.style.display='none';
+  const _chatMsgs=document.getElementById('chat-msgs');if(_chatMsgs)_chatMsgs.innerHTML='';
 }
 
 function _confirmLeaveLobby(withMusic) {
@@ -2367,3 +2376,30 @@ window._debugWithdrawDeposit = async function() {
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('on')) close(); });
 })();
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+function _chatAppend(from, text, isSelf) {
+  const msgs = document.getElementById('chat-msgs');
+  if (!msgs) return;
+  const row = document.createElement('div');
+  row.className = 'chat-msg' + (isSelf ? ' chat-self' : '');
+  row.innerHTML = '<span class="chat-from">' + from.replace(/</g, '&lt;') + '</span> '
+                + '<span class="chat-text">' + text.replace(/</g, '&lt;') + '</span>';
+  msgs.appendChild(row);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+(function () {
+  const input = document.getElementById('chat-input');
+  const btn   = document.getElementById('chat-send');
+  if (!input || !btn) return;
+  function _sendChat() {
+    const text = input.value.trim();
+    if (!text || gameMode !== 'multiplayer' || !currentGameId) return;
+    _wsSend({ type: 'chat', gameId: currentGameId, text });
+    _chatAppend('You', text, true);
+    input.value = '';
+  }
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') _sendChat(); });
+  btn.addEventListener('click', _sendChat);
+}());
