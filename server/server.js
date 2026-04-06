@@ -655,10 +655,30 @@ const httpServer = http.createServer(async (req, res) => {
         const writeData = await writeRes.json();
         console.log(`[table-claim] Thirdweb write response:`, JSON.stringify(writeData));
         if (!writeRes.ok) throw new Error(writeData.error || writeData.message || "Thirdweb API error");
-        const txHash = writeData.transactionHash || writeData.result || "(pending)";
-        console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${txHash}`);
-        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-        res.end(JSON.stringify({ success: true }));
+        const transactionId = writeData.result?.transactionIds?.[0];
+        if (!transactionId) throw new Error("No transactionId in Thirdweb response");
+        console.log(`[table-claim] transactionId: ${transactionId}`);
+
+        // Poll until mined or timeout (30s)
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 2000));
+          const pollRes = await fetch(`https://api.thirdweb.com/v1/transactions/${transactionId}`, {
+            headers: { "x-secret-key": twKey },
+          });
+          const pollData = await pollRes.json();
+          const status = pollData.result?.status ?? pollData.status;
+          console.log(`[table-claim] poll status: ${status}`);
+          if (status === "mined" || status === "confirmed") {
+            const txHash = pollData.result?.transactionHash ?? transactionId;
+            console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${txHash}`);
+            res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+            res.end(JSON.stringify({ success: true }));
+            return;
+          }
+          if (status === "failed") throw new Error("Transaction failed on-chain");
+        }
+        throw new Error("Transaction timeout");
       } catch (e) {
         console.error(`[table-claim] Error: ${e.message}`);
         _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
