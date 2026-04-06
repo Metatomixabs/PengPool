@@ -644,7 +644,7 @@ const httpServer = http.createServer(async (req, res) => {
                 1,
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 0,
-                [[], 0, 0, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"],
+                [[], 999999, 0, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"],
                 "0x",
               ],
             }],
