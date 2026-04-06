@@ -653,6 +653,7 @@ const httpServer = http.createServer(async (req, res) => {
           }),
         });
         const writeData = await writeRes.json();
+        console.log(`[table-claim] Thirdweb write response:`, JSON.stringify(writeData));
         if (!writeRes.ok) throw new Error(writeData.error || writeData.message || "Thirdweb API error");
         const txHash = writeData.transactionHash || writeData.result || "(pending)";
         console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${txHash}`);
