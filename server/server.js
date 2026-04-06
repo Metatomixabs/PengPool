@@ -676,7 +676,10 @@ const httpServer = http.createServer(async (req, res) => {
             res.end(JSON.stringify({ success: true }));
             return;
           }
-          if (status === "failed") throw new Error("Transaction failed on-chain");
+          if (status === "failed" || status === "FAILED") {
+            console.log(`[table-claim] Transaction failed details:`, JSON.stringify(pollData));
+            throw new Error("Transaction failed on-chain");
+          }
         }
         throw new Error("Transaction timeout");
       } catch (e) {
