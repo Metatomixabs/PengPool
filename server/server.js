@@ -99,7 +99,9 @@ function _getWalletAndProvider() {
   return { wallet: _wallet, provider: _provider };
 }
 
-const TABLE_NFT_MINT_ABI = ["function airdrop(uint256 tokenId, tuple(address recipient, uint256 amount)[] contents) external"];
+const TABLE_NFT_MINT_ABI = [
+  "function claim(address _receiver, uint256 _tokenId, uint256 _quantity, address _currency, uint256 _pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) _allowlistProof, bytes _data) external payable"
+];
 let _nftContract = null;
 function _getNFTContract() {
   if (_nftContract) return _nftContract;
@@ -621,7 +623,15 @@ const httpServer = http.createServer(async (req, res) => {
         if (!nft) {
           _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Server misconfigured" })); return;
         }
-        const tx = await nft.airdrop(tid, [{ recipient: wallet, amount: 1 }]);
+        const tx = await nft.claim(
+          wallet,
+          tid,
+          1,
+          "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+          0,
+          { proof: [], quantityLimitPerWallet: 0, pricePerToken: 0, currency: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" },
+          "0x"
+        );
         await tx.wait();
         console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${tx.hash}`);
         res.writeHead(200, { "Content-Type": "application/json", ...CORS });
