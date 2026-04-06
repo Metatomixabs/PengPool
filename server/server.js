@@ -100,6 +100,19 @@ function _getWalletAndProvider() {
 }
 
 
+const TABLE_NFT_MINT_ABI = [
+  "function claim(address _receiver, uint256 _tokenId, uint256 _quantity, address _currency, uint256 _pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) _allowlistProof, bytes _data) external payable"
+];
+const TABLE_NFT_BALANCE_ABI = ["function balanceOf(address account, uint256 id) external view returns (uint256)"];
+let _nftContract = null;
+function _getNFTContract() {
+  if (_nftContract) return _nftContract;
+  const wp = _getWalletAndProvider();
+  if (!wp) return null;
+  _nftContract = new ethers.Contract(TABLE_NFT_CONTRACT, TABLE_NFT_MINT_ABI, wp.wallet);
+  return _nftContract;
+}
+
 // gameIds already settled or in-progress — avoid double-settling
 const _settling = new Set();
 
@@ -608,80 +621,33 @@ const httpServer = http.createServer(async (req, res) => {
         if (player.level < required) {
           _safeEnd(403, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: `Level ${required} required (you are level ${player.level})` })); return;
         }
-        const twKey = process.env.THIRDWEB_SECRET_KEY;
-        if (!twKey) {
+        const wp = _getWalletAndProvider();
+        if (!wp) {
           _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Server misconfigured" })); return;
         }
-        const twHeaders = { "Content-Type": "application/json", "x-secret-key": twKey };
 
         // Check if player already owns this token
-        const readRes = await fetch("https://api.thirdweb.com/v1/contracts/read", {
-          method: "POST",
-          headers: twHeaders,
-          body: JSON.stringify({
-            contractAddress: TABLE_NFT_CONTRACT,
-            method: "function balanceOf(address account, uint256 id) view returns (uint256)",
-            params: [wallet, tid],
-            chainId: 11124,
-          }),
-        });
-        const readData = await readRes.json();
-        if (readData.result && BigInt(readData.result) > 0n) {
+        const nftRead = new ethers.Contract(TABLE_NFT_CONTRACT, TABLE_NFT_BALANCE_ABI, wp.provider);
+        const balance = await nftRead.balanceOf(wallet, tid);
+        if (balance > 0n) {
           _safeEnd(403, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: "Already owns this table" })); return;
         }
 
-        // Mint via Thirdweb API
-        const writeRes = await fetch("https://api.thirdweb.com/v1/contracts/write", {
-          method: "POST",
-          headers: twHeaders,
-          body: JSON.stringify({
-            calls: [{
-              contractAddress: TABLE_NFT_CONTRACT,
-              method: "function claim(address _receiver, uint256 _tokenId, uint256 _quantity, address _currency, uint256 _pricePerToken, (bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) _allowlistProof, bytes _data) payable",
-              params: [
-                wallet,
-                tid,
-                1,
-                "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-                0,
-                [[], 999999, 0, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"],
-                "0x",
-              ],
-            }],
-            chainId: 11124,
-            from: "0x2b1ebbd977E050cc68f3804CaeB1dB2Fe449c312",
-          }),
-        });
-        const writeData = await writeRes.json();
-        console.log(`[table-claim] Thirdweb write response:`, JSON.stringify(writeData));
-        if (!writeRes.ok) throw new Error(writeData.error || writeData.message || "Thirdweb API error");
-        const transactionId = writeData.result?.transactionIds?.[0];
-        if (!transactionId) throw new Error("No transactionId in Thirdweb response");
-        console.log(`[table-claim] transactionId: ${transactionId}`);
-
-        // Poll until mined or timeout (30s)
-        const deadline = Date.now() + 30_000;
-        while (Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 2000));
-          const pollRes = await fetch(`https://api.thirdweb.com/v1/transactions/${transactionId}`, {
-            headers: { "x-secret-key": twKey },
-          });
-          const pollData = await pollRes.json();
-          const status = pollData.result?.status ?? pollData.status;
-          console.log(`[table-claim] poll status: ${status}`);
-          if (status === "mined" || status === "confirmed") {
-            const txHash = pollData.result?.transactionHash ?? transactionId;
-            console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${txHash}`);
-            res.writeHead(200, { "Content-Type": "application/json", ...CORS });
-            res.end(JSON.stringify({ success: true }));
-            return;
-          }
-          if (status === "failed" || status === "FAILED") {
-            console.log(`[table-claim] Transaction failed details:`, JSON.stringify(pollData));
-            throw new Error("Transaction failed on-chain");
-          }
-        }
-        throw new Error("Transaction timeout");
+        // Mint via ethers.js
+        const nft = _getNFTContract();
+        const tx = await nft.claim(
+          wallet,
+          tid,
+          1,
+          "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+          0,
+          { proof: [], quantityLimitPerWallet: 999999, pricePerToken: 0, currency: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" },
+          "0x"
+        );
+        await tx.wait();
+        console.log(`[table-claim] Minted token ${tid} → ${wallet.slice(0,10)}… tx: ${tx.hash}`);
+        res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+        res.end(JSON.stringify({ success: true }));
       } catch (e) {
         console.error(`[table-claim] Error: ${e.message}`);
         _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
