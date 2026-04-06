@@ -644,7 +644,7 @@ const httpServer = http.createServer(async (req, res) => {
                 1,
                 "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
                 0,
-                { proof: [], quantityLimitPerWallet: 0, pricePerToken: 0, currency: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" },
+                [[], 0, 0, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"],
                 "0x",
               ],
             }],
