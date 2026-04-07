@@ -544,7 +544,7 @@ function phys(frameDelta) {
   const fricFrame = Math.pow(FRIC_BASE, dt);
   const _inPlay = balls.filter(b => !b.out);
   const maxV = _inPlay.length ? Math.max(..._inPlay.map(b => Math.hypot(b.vx, b.vy))) : 0;
-  const substeps = maxV > 15 ? 6 : maxV > 8 ? 4 : 2;
+  const substeps = maxV > 10 ? 8 : maxV > 5 ? 5 : 3;
   let mv = false;
   // CCD para bola blanca
   if (cue && !cue.out) {
