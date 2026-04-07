@@ -1739,7 +1739,7 @@ const _HIDDEN_TICK_MS = 16; // ~60 fps physics while tab is hidden
 // Called from loop() when visible and from _hiddenLoop() when tab is hidden.
 function _physTick() {
   const now = performance.now();
-  const frameDelta = Math.min(now - _lastFrameTime, 50);
+  const frameDelta = Math.min(now - _lastFrameTime, 20);
   _lastFrameTime = now;
   const was = moving;
   moving = phys(frameDelta);
