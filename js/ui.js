@@ -1548,6 +1548,13 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       + '<div id="recTournamentResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
       + '</div>'
 
+      // Section 4 — Stuck deposit
+      + '<div style="border:1px solid rgba(255,120,120,.2);border-radius:7px;padding:16px;margin-top:16px">'
+      + '<div style="font-size:11px;letter-spacing:1px;margin-bottom:12px;color:#c8e8f8">STUCK DEPOSIT</div>'
+      + '<button id="recBtnDeposit" style="width:100%;background:rgba(255,120,120,.1);border:1px solid rgba(255,120,120,.3);color:#ff9090;font-family:inherit;font-size:10px;letter-spacing:1px;padding:9px 0;border-radius:5px;cursor:pointer">↩ Reclaim Stuck Deposit</button>'
+      + '<div id="recDepositResult" style="margin-top:12px;font-size:10px;color:#7eb8d8;min-height:18px;line-height:1.6"></div>'
+      + '</div>'
+
       + '</div>';
 
     document.body.appendChild(overlay);
@@ -1566,6 +1573,8 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       document.getElementById('recBtnClaim').disabled = true;
       document.getElementById('recBtnTournament').disabled = true;
       document.getElementById('recTournamentResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
+      document.getElementById('recBtnDeposit').disabled = true;
+      document.getElementById('recDepositResult').innerHTML = '<span style="color:#ff6b6b">Connect your wallet first.</span>';
       return;
     }
 
@@ -1725,6 +1734,31 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
       }
       btn.disabled = false;
       btn.textContent = '🏆 Check Tournament Prizes';
+    };
+
+    // Reclaim stuck deposit
+    document.getElementById('recBtnDeposit').onclick = async function() {
+      const btn = this;
+      const resultEl = document.getElementById('recDepositResult');
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      resultEl.innerHTML = '';
+      try {
+        const dep = await _w.getDeposit(addr);
+        if (!dep || dep.amount === 0n) {
+          resultEl.innerHTML = '<span style="color:#7eb8d8">No stuck deposit found.</span>';
+          btn.disabled = false;
+          btn.textContent = '↩ Reclaim Stuck Deposit';
+          return;
+        }
+        btn.textContent = 'Withdrawing…';
+        await _w.withdrawDeposit();
+        resultEl.innerHTML = '<span style="color:#00c951">✅ Deposit reclaimed!</span>';
+      } catch(e) {
+        resultEl.innerHTML = '<span style="color:#ff6b6b">❌ ' + (e?.message || String(e)) + '</span>';
+      }
+      btn.disabled = false;
+      btn.textContent = '↩ Reclaim Stuck Deposit';
     };
   }
 })();
