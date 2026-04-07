@@ -1264,7 +1264,59 @@ function resetTurnTimer() {
 // Key: game screen is always in DOM (never display:none)
 // so canvas always has real pixel dimensions
 // ═══════════════════════════
+// ── LOBBY MUSIC ──
+(function(){
+  let _lmEnabled = localStorage.getItem('lobbyMusicEnabled') !== 'false';
+  let _lmVol     = parseFloat(localStorage.getItem('lobbyMusicVolume') ?? '0.3');
+
+  function _el()  { return document.getElementById('lobbyMusic'); }
+  function _btn() { return document.getElementById('btnLobbyMusic'); }
+  function _sl()  { return document.getElementById('lobbyVolSlider'); }
+
+  function _syncUI() {
+    const on = _lmEnabled && _lmVol > 0;
+    const btn = _btn(); if (btn) btn.textContent = on ? '♪ ON' : '♪ OFF';
+  }
+
+  window.toggleLobbyMusic = function() {
+    _lmEnabled = !_lmEnabled;
+    localStorage.setItem('lobbyMusicEnabled', _lmEnabled);
+    const el = _el();
+    if (_lmEnabled) { if (el) el.play().catch(()=>{}); }
+    else            { if (el) el.pause(); }
+    _syncUI();
+  };
+
+  window.setLobbyVolume = function(v) {
+    _lmVol = Math.max(0, Math.min(1, Number(v)));
+    localStorage.setItem('lobbyMusicVolume', _lmVol);
+    const el = _el(); if (el) el.volume = _lmVol;
+    if (_lmVol === 0) { _lmEnabled = false; localStorage.setItem('lobbyMusicEnabled', false); if (el) el.pause(); }
+    else if (!_lmEnabled) { _lmEnabled = true; localStorage.setItem('lobbyMusicEnabled', true); if (el) el.play().catch(()=>{}); }
+    _syncUI();
+  };
+
+  window._lobbyMusicEnter = function() {
+    const el = _el(); if (!el) return;
+    el.volume = _lmVol;
+    const sl = _sl(); if (sl) sl.value = _lmVol;
+    _syncUI();
+    if (!_lmEnabled || _lmVol === 0) return;
+    el.play().catch(() => {
+      // Autoplay blocked — resume on first user interaction
+      const resume = () => { if (_lmEnabled) el.play().catch(()=>{}); };
+      document.addEventListener('click',   resume, { once: true });
+      document.addEventListener('keydown', resume, { once: true });
+    });
+  };
+
+  window._lobbyMusicLeave = function() {
+    const el = _el(); if (el) el.pause();
+  };
+})();
+
 function show(id) {
+  const _lobbyWasVisible = !document.getElementById('lobby')?.classList.contains('hidden');
   if (id !== 'game') stopTurnTimer();
   ['intro','lobby','matchmaking','mmSearching','mmWaiting','tournamentLobby','tournamentDetail'].forEach(s => {
     const el = document.getElementById(s); if (el) el.classList.add('hidden');
@@ -1279,6 +1331,8 @@ function show(id) {
   if (id !== 'matchmaking') { clearInterval(_mmCdInterval); _mmCdInterval = null; clearInterval(_liveGamesInterval); _liveGamesInterval = null; }
   if (id !== 'game') _hideWaitingOverlay();
   const el = document.getElementById(id); if (el) el.classList.remove('hidden');
+  if (id === 'lobby') { _lobbyMusicEnter(); }
+  else if (_lobbyWasVisible) { _lobbyMusicLeave(); }
 }
 
 

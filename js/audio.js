@@ -71,8 +71,44 @@ function _setBtns(label) {
 // SOUND EFFECTS (Web Audio API)
 // ═══════════════════════════
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
-let audioCtx = null;
-function getAudio(){ if(!audioCtx) audioCtx = new AudioCtx(); return audioCtx; }
+let audioCtx  = null;
+let _sfxGain  = null;
+let _sfxVolume = parseFloat(localStorage.getItem('sfxVolume') ?? '1');
+let _sfxMuted  = false;
+
+function getAudio(){
+  if(!audioCtx){
+    audioCtx = new AudioCtx();
+    _sfxGain = audioCtx.createGain();
+    _sfxGain.gain.value = _sfxVolume;
+    _sfxGain.connect(audioCtx.destination);
+    const sfxSlider = document.getElementById('sfxSlider');
+    if(sfxSlider) sfxSlider.value = _sfxVolume;
+  }
+  return audioCtx;
+}
+
+function setSfxVolume(v){
+  _sfxVolume = Math.max(0, Math.min(1, Number(v)));
+  _sfxMuted  = _sfxVolume === 0;
+  localStorage.setItem('sfxVolume', _sfxVolume);
+  if(_sfxGain) _sfxGain.gain.value = _sfxVolume;
+  const btn = document.getElementById('btnSfxNav');
+  if(btn) btn.textContent = _sfxMuted ? '🔇' : '🔊';
+}
+
+function toggleSfx(){
+  if(_sfxMuted){
+    const restored = parseFloat(localStorage.getItem('sfxVolume') ?? '1') || 1;
+    setSfxVolume(restored);
+    const sfxSlider = document.getElementById('sfxSlider');
+    if(sfxSlider) sfxSlider.value = restored;
+  } else {
+    setSfxVolume(0);
+    const sfxSlider = document.getElementById('sfxSlider');
+    if(sfxSlider) sfxSlider.value = 0;
+  }
+}
 
 // ── Real ball samples ─────────────────────────────────────────────────────
 const _BB='UklGRiYFAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIFAACO9BkBKg9EGqkgryCIGVkMTPtk6ITVncNUtvmw0bVExpvhkAOPJy9IOWDLbMxrm1ybQJMc4fMPzEisQpnblrCkysDF5iUPqjLmSgFUgU20OQ8dvv3S4MvLL8PTxSzQRN5U7aT7owbwDhQXrh+wJ20tMjCVLn0njRtYCy359uea2ZbQfM+P1y/nG/qoC+IXzRxLHFMZMhQXDi0Hwf228Yzk6dkI1GPUq9qz5rr35ApqH5Ey5EAVRwhDPzUbH54DduaJzOy4Lq5MsJa9uNE06c//FBITH0UnQCnzJooh9hfMC33/v/Jc6JXjmeSI7I/62gnpFlIdCBoLEMYDPfjo72jtHvFU+VYE6A/7Gf8gKCR+IvMb1RBVAufxiOKt12/SOtMH2WXi0O3H+gcJ9BQ4HBod4Bb/Clr8Hu5Y43vfL+OY7sL+fg9OHoYm2CctJHIcrRI9CFj+O/Ya8ODr0Ogw5//nl+uw8qn8tAb2DXER6A+uCUgAifUp7FzmLeZ87ML3IQVkEToZIhqvE+0HWvt38Y/sD+/r920EshEgHV0jwyGhGEMJtPY741fTzcvozYHZMO2QBNEZHyqeM+Q0ui7XIfsQ4P4M7QndRdFlzNbNRNVn4gXzKAY3GlctyTxBRjhI7EHfM5cfgAet7r3XJsVbuf62g76Jzl/k5PsPEpkkzTDONf0y+ijZGKgEnO+E3ZvRts2a0wTivvXmCc4YOR8RHi4WCQvWAAH4VfLC7gfsq+vd7S/y5PYj/OEASAWZCsUPLROQFAMTOw/lCwkJ+QVpAjr9ofYC8LTpTOQt4Xnht+V47tv5LgaHEjwckiEXIb8aYhE5Btj6G/HX6kPqnO4k9wcDUA+4GM4c8htXF1MRVAs8Bef+WvcM7vrjPtps0lXQVdZ/46b1HwlOGhAnjC7pL7EsbyZZHZkTcgl7/jr0VexG5pnhBN8d3h/g5uVp7pL4NQJHCYMMXAt0BwQCQPz39+r28PlwAN0JNRR8HakjRCSyH2IXawzJAEj2zO3h57zkn+RO6PjuNfdw/5IGBgwyD2YQnA9ODVoK5gYeAxL/Mfsw+LH2zPaj+HH77P3F/ib9ifmT9N3vo+yw6/rtHvRs/ooLJBnwI/ko7yb1HbMPiP6p7R3g39ez1vLcw+hD9zMF5A/lFWoXcRUvEeIL/wUZAAX7qfZg8/zxG/L085j3rPt//xwD1wVxBxgIlQerBf0CdgDc/lr+nf4//8r/6f+e/x7/sP6y/mT/vADSAjQFPgerCI0IXwZ2Aof9mfjb9Hnz8vQH+ZP+KwTRCLULQQxiCpcGoAGg/HT4rfXZ9B/2C/nv/BkBrwTOBvcGVgV8AmP/5Pxj+wn7nPvh/J3+bwAYAk4D9wMCBGgDYAImAe//AP98/lT+pP44/6T/zP/l/+z/sv95/1X/SP9//wgAxwCfAYYCSQOxA4wDnQLgAMD+sfwY+076gPqZ+1L9X/9vASsDRQSQBAsE7gJ0AfH/tv74/b396P1c/ur+bP/R/wMAEAAhAEQAhwDmADEBSwElAcUATwDv/7L/jv+E/4r/l/+w/9T/BwBBAHYAnAC3AMAArgCGAEgA/P+x/2//SP9B/1z/lv/g/ycAWABrAGEARAAeAPr/4P/R/9D/2P/i/+z/8P/t/+f/4P/Z/9j/3v/n//H//P8FAAwAEQAUABUAFAARAAsAAwD7//P/7f/p/+j/6v/v//X/';
@@ -88,7 +124,7 @@ function playHit(power=1){
     const src=ac.createBufferSource();src.buffer=_bh;
     src.playbackRate.value=0.95+power*0.12;
     const g=ac.createGain();g.gain.value=0.5+power*0.6;
-    src.connect(g);g.connect(ac.destination);src.start();
+    src.connect(g);g.connect(_sfxGain||ac.destination);src.start();
   }catch(e){}
 }
 
@@ -99,7 +135,7 @@ function playCollision(speed=1){
     const src=ac.createBufferSource();src.buffer=_bh;
     src.playbackRate.value=0.88+speed*0.18;
     const g=ac.createGain();g.gain.value=0.5+speed*0.5;
-    src.connect(g);g.connect(ac.destination);src.start();
+    src.connect(g);g.connect(_sfxGain||ac.destination);src.start();
   }catch(e){}
 }
 
@@ -116,7 +152,7 @@ function playPocket(){
     }
     const src=ac.createBufferSource();src.buffer=buf;
     const gain=ac.createGain();gain.gain.value=0.9;
-    src.connect(gain);gain.connect(ac.destination);src.start();
+    src.connect(gain);gain.connect(_sfxGain||ac.destination);src.start();
   }catch(e){}
 }
 
@@ -132,7 +168,7 @@ function playVictory(){
       gain.gain.setValueAtTime(0,ac.currentTime+i*0.12);
       gain.gain.linearRampToValueAtTime(0.3,ac.currentTime+i*0.12+0.04);
       gain.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.12+0.4);
-      osc.connect(gain);gain.connect(ac.destination);
+      osc.connect(gain);gain.connect(_sfxGain||ac.destination);
       osc.start(ac.currentTime+i*0.12);
       osc.stop(ac.currentTime+i*0.12+0.5);
     });
@@ -149,7 +185,7 @@ function playRailHit(){
     if(!_rbr){_lrbr();return;}
     const src=ac.createBufferSource();src.buffer=_rbr;
     const g=ac.createGain();g.gain.value=0.65;
-    src.connect(g);g.connect(ac.destination);src.start();
+    src.connect(g);g.connect(_sfxGain||ac.destination);src.start();
   }catch(e){}
 }
 
