@@ -542,6 +542,9 @@ function resolveCollisions() {
 function phys(frameDelta) {
   const dt = frameDelta / 16.667;
   const fricFrame = Math.pow(FRIC_BASE, dt);
+  const _inPlay = balls.filter(b => !b.out);
+  const maxV = _inPlay.length ? Math.max(..._inPlay.map(b => Math.hypot(b.vx, b.vy))) : 0;
+  const substeps = maxV > 15 ? 6 : maxV > 8 ? 4 : 2;
   let mv = false;
   // CCD para bola blanca
   if (cue && !cue.out) {
@@ -601,11 +604,10 @@ function phys(frameDelta) {
       if (b === cue && b._ccdDone) {
         b._ccdDone = false;
       } else {
-        const SUBSTEPS = 2;
         const _hitCorners = new Set();
-        for (let step = 0; step < SUBSTEPS; step++) {
-          b.x += b.vx * dt / SUBSTEPS;
-          b.y += b.vy * dt / SUBSTEPS;
+        for (let step = 0; step < substeps; step++) {
+          b.x += b.vx * dt / substeps;
+          b.y += b.vy * dt / substeps;
 
           // ── BANDAS ──
           const midGap = 31; // apertura tronera central top/bottom
@@ -683,8 +685,8 @@ function phys(frameDelta) {
               _hitCorners.add(ci);
             } else {
               // Detección de tunneling: comprobar si la trayectoria pasó por el punto
-              const prevX = b.x - b.vx / SUBSTEPS;
-              const prevY = b.y - b.vy / SUBSTEPS;
+              const prevX = b.x - b.vx / substeps;
+              const prevY = b.y - b.vy / substeps;
               const pdx = prevX - c.cx,
                 pdy = prevY - c.cy,
                 prevDist = Math.sqrt(pdx * pdx + pdy * pdy);
@@ -1739,7 +1741,7 @@ const _HIDDEN_TICK_MS = 16; // ~60 fps physics while tab is hidden
 // Called from loop() when visible and from _hiddenLoop() when tab is hidden.
 function _physTick() {
   const now = performance.now();
-  const frameDelta = Math.min(now - _lastFrameTime, 20);
+  const frameDelta = Math.min(now - _lastFrameTime, 33);
   _lastFrameTime = now;
   const was = moving;
   moving = phys(frameDelta);
