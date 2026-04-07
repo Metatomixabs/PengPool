@@ -842,7 +842,7 @@ wss.on("connection", (ws) => {
       // Identify the WS connection if not already done
       if (!ws._addr && msg.addr) {
         ws._addr  = msg.addr.toLowerCase();
-        ws._alias = msg.alias || ws._addr;
+        ws._alias = msg.alias || (ws._addr ? ws._addr.slice(0, 6) + '\u2026' + ws._addr.slice(-4) : 'Unknown');
         aliases.set(ws._addr, ws._alias);
       }
       if (!ws._addr) { _send(ws, { type: 'mm_error', reason: 'not_identified' }); return; }

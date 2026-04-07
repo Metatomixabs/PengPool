@@ -542,9 +542,8 @@ function resolveCollisions() {
 function phys(frameDelta) {
   const dt = frameDelta / 16.667;
   const fricFrame = Math.pow(FRIC_BASE, dt);
-  const _inPlay = balls.filter(b => !b.out);
-  const maxV = _inPlay.length ? Math.max(..._inPlay.map(b => Math.hypot(b.vx, b.vy))) : 0;
-  const substeps = maxV > 10 ? 8 : maxV > 5 ? 5 : 3;
+  const cueSpeed = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
+  const substeps = Math.max(3, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
   let mv = false;
   // CCD para bola blanca
   if (cue && !cue.out) {

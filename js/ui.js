@@ -32,6 +32,7 @@ let _wsSeq = 0; // outgoing message sequence number
 let _lastKnownBallCount = null; // tracks ball count for consistency checks
 let _wsPendingMsg  = null; // join message deferred until _ws auth completes
 let _mmPendingMsg  = null; // mm_join_queue message deferred until _mmWs auth completes
+let _mmAuthenticated = false; // true after server confirms auth for _mmWs
 
 // ── Auth message (must match server's _authMsg exactly) ──────────────────────
 function _authMessage(nonce) {
@@ -260,6 +261,7 @@ function _connectMmWs() {
   _mmWs.onclose = (evt) => {
     if (evt.code === 1008) _clearSessionToken(); // auth rejected — force re-sign next time
     _mmWs = null;
+    _mmAuthenticated = false;
   };
   return _mmWs;
 }
@@ -282,7 +284,6 @@ async function _mmOnMessage(msg) {
         const signature = await w.signMessage(_authMessage(msg.nonce));
         _mmSend({ type: 'auth_response', addr: myAddr, signature });
       }
-      if (_mmPendingMsg) { _mmSend(_mmPendingMsg); _mmPendingMsg = null; }
     } catch(e) {
       console.error('[mmWs] Auth error:', e.message);
       _clearSessionToken();
@@ -290,8 +291,17 @@ async function _mmOnMessage(msg) {
     }
     return;
   }
+  // auth_ok — server confirmed token-based auth
+  if (msg.type === 'auth_ok') {
+    _mmAuthenticated = true;
+    if (_mmPendingMsg) { _mmSend(_mmPendingMsg); _mmPendingMsg = null; }
+    return;
+  }
+  // auth_token_issued — server confirmed signature-based auth and issued a new token
   if (msg.type === 'auth_token_issued') {
     _saveSessionToken(msg.token);
+    _mmAuthenticated = true;
+    if (_mmPendingMsg) { _mmSend(_mmPendingMsg); _mmPendingMsg = null; }
     return;
   }
   const w = window.PengPoolWeb3;
@@ -458,12 +468,12 @@ async function _enterQueue(betUSD) {
     alias:  getStoredUsername(addr) || shortenAddr(addr),
     tableId: window._getSelectedTableTokenId()
   };
-  if (_mmWs && _mmWs.readyState === WebSocket.OPEN) {
+  if (_mmWs && _mmWs.readyState === WebSocket.OPEN && _mmAuthenticated) {
     // Already open and authenticated — send immediately
     _mmSend(_mmPendingMsg);
     _mmPendingMsg = null;
   } else {
-    _mmWs.onopen = () => {}; // auth_challenge will trigger mm_join_queue via _mmOnMessage
+    _mmWs.onopen = () => {}; // auth_ok / auth_token_issued will trigger mm_join_queue via _mmOnMessage
   }
 }
 
