@@ -144,11 +144,13 @@ function _connectNotifWs(addr) {
         const w = window.PengPoolWeb3;
         if (w && w.isConnected()) _connectNotifWs(w.getAddress());
       }, 500);
-    } else {
+    } else if (evt.code !== 1008) {
       setTimeout(() => {
         const w = window.PengPoolWeb3;
         if (w && w.isConnected()) _connectNotifWs(w.getAddress());
       }, 5000);
+    } else {
+      console.warn('[notifWs] auth timeout — not reconnecting');
     }
   };
   return _notifWsAuthPromise;

@@ -730,7 +730,8 @@ if (_wp) {
   tournament.initTournament(wss, db.pool, _wp.wallet, _wp.provider, rooms);
 }
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  ws._ip = _clientIp(req);
   // Block game connections while orphan resolver is still running at startup
   if (!_serverReady) {
     ws.send(JSON.stringify({ type: "server_starting", message: "Server initializing, please retry in a few seconds" }));
@@ -752,7 +753,7 @@ wss.on("connection", (ws) => {
   // Close if no auth arrives within 15 seconds
   const _authTimer = setTimeout(() => {
     if (!ws._authenticated) {
-      console.warn("[auth] timeout — closing unauthenticated WS");
+      console.warn(`[auth] timeout — closing unauthenticated WS (ip: ${ws._ip})`);
       ws.close(1008, "Authentication timeout");
     }
   }, 15000);

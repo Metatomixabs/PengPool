@@ -997,9 +997,10 @@ function shotEnd() {
     _updateBonusUI();
     switchTurn();
   } else if (foulThisTurn) {
-    // First-contact foul or pocketed wrong ball — 2-shot bonus only outside endgame
+    // First-contact foul or pocketed wrong ball
+    // 2-shot bonus outside endgame, OR in endgame if player didn't touch any ball
     foul();
-    if (!inEndgame) bonusShots = 2;
+    if (!inEndgame || firstContactId === null) bonusShots = 2;
     _updateBonusUI();
     switchTurn();
   } else if (hadBonus && bonusShots > 0) {
@@ -1415,6 +1416,16 @@ function drawBall(b) {
     // Cue Ball Base
     cx.fillStyle = '#ffffff';
     cx.fillRect(-R, -R, R * 2, R * 2);
+    // Abstract logo — single centered instance, rotates with ball
+    if (_abstractLogo.complete && _abstractLogo.naturalWidth) {
+      const logoSize = R * 1.2;
+      cx.save();
+      cx.rotate(b.visualAngle || 0);
+      cx.globalAlpha = 0.85;
+      cx.drawImage(_abstractLogo, -R * 0.6, -R * 0.6, logoSize, logoSize);
+      cx.globalAlpha = 1;
+      cx.restore();
+    }
   } else {
     const sprite = ballSprites[b.id];
     const frameIndex = Math.floor((b.totalRotation || 0) * 13) % SPRITE_FRAMES;
