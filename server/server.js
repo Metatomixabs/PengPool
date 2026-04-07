@@ -912,7 +912,7 @@ wss.on("connection", (ws) => {
     // ── join ──────────────────────────────────────────────────────────────
     if (msg.type === "join") {
       const _gid = String(msg.gameId);
-      if (!/^\d+$/.test(_gid) && !_gid.startsWith('notif_')) return;
+      if (!/^\d+$/.test(_gid) && !_gid.startsWith('notif_') && !/^t_\d+_\d+$/.test(_gid)) return;
       const gameId = String(msg.gameId);
       const addr   = (msg.addr || "").toLowerCase();
 

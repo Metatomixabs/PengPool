@@ -800,14 +800,21 @@ async function _tLoadList() {
   if (!list) return;
   list.innerHTML = '<div class="level-loading">Loading…</div>';
   try {
-    const statusMap = { open: 'registration', active: 'active', finished: 'finished' };
-    const res = await fetch(HTTP_URL + '/api/tournaments');
+    const endpoint = _tCurrentTab === 'finished'
+      ? HTTP_URL + '/api/tournaments/finished'
+      : HTTP_URL + '/api/tournaments';
+    const res  = await fetch(endpoint);
     const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) {
+    if (!Array.isArray(data)) { list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>'; return; }
+
+    const statusFilter = { open: 'registration', active: 'active', finished: 'finished' };
+    const filtered = data.filter(t => t.status === statusFilter[_tCurrentTab]);
+
+    if (filtered.length === 0) {
       list.innerHTML = '<div class="level-noconn">No tournaments found.</div>';
       return;
     }
-    list.innerHTML = data.map(t => {
+    list.innerHTML = filtered.map(t => {
       const start = new Date(t.start_time).toLocaleString();
       return `<div class="t-card" onclick="_tOpenDetail(${t.id})">
         <div class="t-card-name">${t.name}</div>
@@ -975,15 +982,17 @@ async function _tClaimPrize() {
 async function _tSubmitCreate() {
   const name    = document.getElementById('tFormName')?.value?.trim();
   const buyIn   = Number(document.getElementById('tFormBuyIn')?.value);
-  const startStr = document.getElementById('tFormStart')?.value;
+  const dateVal = document.getElementById('tFormDate')?.value; // YYYY-MM-DD
+  const timeVal = document.getElementById('tFormTime')?.value; // HH:MM
   if (!name)    { toast('Enter a tournament name', 1); return; }
-  if (!startStr){ toast('Set a start time', 1); return; }
+  if (!dateVal || !timeVal) { toast('Set a start date and time', 1); return; }
   const w = window.PengPoolWeb3;
   if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
   const btn = document.getElementById('tFormSubmit');
   if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
   try {
-    const startTimeUnix = Math.floor(new Date(startStr).getTime() / 1000);
+    // Combines date + time strings; new Date(...) interprets as local browser time (not UTC)
+    const startTimeUnix = Math.floor(new Date(`${dateVal}T${timeVal}`).getTime() / 1000);
     const res = await fetch(HTTP_URL + '/api/tournament/create-custom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

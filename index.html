@@ -74,6 +74,8 @@
 
 <!-- ── MATCHMAKING: Bet card selection ──────────────────── -->
 <div id="matchmaking" class="screen hidden">
+  <img src="assets/logo/pengpool_izquierda.png" class="mm-penguin mm-penguin--left"  alt="">
+  <img src="assets/logo/pengpool_derecha.png"   class="mm-penguin mm-penguin--right" alt="">
   <div class="mm-header">
     <img src="assets/logo/pengpool_mascot.png" class="mm-mascot" alt="PengPool">
     <h2 class="mm-title">FIND A MATCH</h2>
@@ -155,9 +157,14 @@
       </select>
     </div>
     <div class="t-form-row">
-      <label class="t-form-label">Start time</label>
-      <input class="t-form-input" id="tFormStart" type="datetime-local">
+      <label class="t-form-label">Date</label>
+      <input class="t-form-input" id="tFormDate" type="date" placeholder="YYYY-MM-DD">
     </div>
+    <div class="t-form-row">
+      <label class="t-form-label">Time</label>
+      <input class="t-form-input" id="tFormTime" type="time" placeholder="HH:MM">
+    </div>
+    <small style="color:#aaa">🕐 Your local time — will be displayed in UTC for all players</small>
     <button class="btn-g t-form-btn" id="tFormSubmit">CREATE</button>
   </div>
   <div class="mm-note" style="margin-top:14px;display:flex;gap:10px;justify-content:center">

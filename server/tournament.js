@@ -225,28 +225,9 @@ function initTournament(wss, pool, wallet, provider, rooms) {
   _provider = provider;
   _rooms    = rooms;
 
-  const REGULAR_DAY  = parseInt(process.env.REGULAR_TOURNAMENT_DAY  ?? "5", 10);
-  const REGULAR_HOUR = parseInt(process.env.REGULAR_TOURNAMENT_HOUR ?? "20", 10);
-
-  // Daily 00:01 UTC — create regular tournament if it's the target day and one
-  // doesn't already exist for this week.
-  cron.schedule("1 0 * * *", async () => {
-    try {
-      if (new Date().getUTCDay() !== REGULAR_DAY) return;
-      const { rows } = await _pool.query(
-        `SELECT id FROM tournaments WHERE type = 'regular' AND created_at >= NOW() - INTERVAL '7 days' LIMIT 1`
-      );
-      if (rows.length === 0) {
-        console.log("[tournament cron] creating regular tournament");
-        await createRegularTournament();
-      }
-    } catch (e) {
-      console.error("[tournament cron] daily check failed:", e.message);
-    }
-  });
-
-  // Every minute — auto-start tournaments whose start_time has arrived.
+  // Every minute — auto-start, expire abandoned, and finalize stuck tournaments.
   cron.schedule("* * * * *", async () => {
+    // 1. Auto-start tournaments whose start_time has arrived.
     try {
       const { rows } = await _pool.query(
         `SELECT id FROM tournaments
@@ -261,6 +242,42 @@ function initTournament(wss, pool, wallet, provider, rooms) {
     } catch (e) {
       console.error("[tournament cron] auto-start check failed:", e.message);
     }
+
+    // 2. Cancel abandoned registration tournaments: start_time passed >30 min ago, <2 participants.
+    try {
+      const { rows: abandoned } = await _pool.query(
+        `SELECT id FROM tournaments
+         WHERE status = 'registration'
+           AND start_time <= NOW() - INTERVAL '30 minutes'
+           AND participant_count < 2`
+      );
+      for (const { id } of abandoned) {
+        console.log(`[tournament cron] cancelling abandoned tournament ${id}`);
+        await _pool.query(`UPDATE tournaments SET status = 'cancelled' WHERE id = $1`, [id]);
+      }
+    } catch (e) {
+      console.error("[tournament cron] abandon-cancel check failed:", e.message);
+    }
+
+    // 3. Safety-net: finalize active tournaments where all matches are already finished.
+    try {
+      const { rows: stuck } = await _pool.query(
+        `SELECT t.id FROM tournaments t
+         WHERE t.status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM tournament_matches m
+             WHERE m.tournament_id = t.id AND m.status != 'finished'
+           )`
+      );
+      for (const { id } of stuck) {
+        console.log(`[tournament cron] safety-net finalizing stuck tournament ${id}`);
+        await finalizeTournament(id).catch(e =>
+          console.error(`[tournament cron] finalizeTournament(${id}) failed:`, e.message)
+        );
+      }
+    } catch (e) {
+      console.error("[tournament cron] safety-net check failed:", e.message);
+    }
   });
 
   console.log("[tournament] module initialised");
@@ -269,22 +286,6 @@ function initTournament(wss, pool, wallet, provider, rooms) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tournament creation
 // ─────────────────────────────────────────────────────────────────────────────
-
-async function createRegularTournament() {
-  const REGULAR_DAY  = parseInt(process.env.REGULAR_TOURNAMENT_DAY  ?? "5", 10);
-  const REGULAR_HOUR = parseInt(process.env.REGULAR_TOURNAMENT_HOUR ?? "20", 10);
-
-  // Auto-increment weekly number
-  const { rows: [{ count }] } = await _pool.query(
-    `SELECT COUNT(*) AS count FROM tournaments WHERE type = 'regular'`
-  );
-  const weekNum    = parseInt(count, 10) + 1;
-  const name       = `PengPool Weekly #${weekNum}`;
-  const startTime  = _nextOccurrence(REGULAR_DAY, REGULAR_HOUR);
-  const creatorAddr = _wallet.address;
-
-  return _createTournamentRecord(name, 2, startTime, false, creatorAddr);
-}
 
 async function createCustomTournament(creatorAddr, name, buyInUSD, startTimeUnix) {
   if (!name || !name.trim())           throw new Error("Name cannot be empty");
@@ -335,44 +336,6 @@ async function _createTournamentRecord(name, buyInUSD, startTimeDate, isCustom, 
   );
 
   console.log(`[tournament] DB record inserted: id=${record.id} chain_id=${chainId}`);
-
-  // If startTime is within the next 2 minutes, schedule an immediate start attempt
-  const secsUntilStart = startTimeUnix - Math.floor(Date.now() / 1000);
-  if (secsUntilStart <= 120) {
-    const delay = Math.max(0, secsUntilStart * 1000);
-    setTimeout(async () => {
-      try {
-        const { rows: [fresh] } = await _pool.query(
-          'SELECT id FROM tournaments WHERE chain_id = $1', [chainId]
-        );
-        if (!fresh) return;
-        // Check participant count from DB — updated by register-participant endpoint
-        const { rows: [counts] } = await _pool.query(
-          'SELECT COUNT(*) as cnt FROM tournament_participants WHERE tournament_id = $1', [fresh.id]
-        );
-        const cnt = parseInt(counts?.cnt || '0', 10);
-        console.log(`[tournament] auto-start check: id=${fresh.id} participants=${cnt}`);
-        if (cnt >= 2) {
-          await startTournamentById(fresh.id);
-        } else {
-          console.log(`[tournament] auto-start skipped: only ${cnt} participants in DB`);
-          // Try again in 30s in case register-participant calls are still in flight
-          setTimeout(async () => {
-            try {
-              const { rows: [counts2] } = await _pool.query(
-                'SELECT COUNT(*) as cnt FROM tournament_participants WHERE tournament_id = $1', [fresh.id]
-              );
-              const cnt2 = parseInt(counts2?.cnt || '0', 10);
-              if (cnt2 >= 2) await startTournamentById(fresh.id);
-              else console.log(`[tournament] auto-start final attempt skipped: ${cnt2} participants`);
-            } catch(e) { console.error('[tournament] auto-start retry failed:', e.message); }
-          }, 30000);
-        }
-      } catch(e) {
-        console.error('[tournament] auto-start after create failed:', e.message);
-      }
-    }, delay + 5000); // +5s buffer after startTime
-  }
 
   return record;
 }
@@ -506,17 +469,29 @@ async function openNextMatches(tournamentDbId) {
       [roomId, match.id]
     );
 
+    // Resolve aliases from players table (fallback to shortened address)
+    const { rows: aliasRows } = await _pool.query(
+      `SELECT LOWER(wallet) AS addr, username FROM players
+       WHERE LOWER(wallet) = ANY($1)`,
+      [[match.player1_addr.toLowerCase(), match.player2_addr.toLowerCase()]]
+    );
+    const aliasMap = {};
+    for (const r of aliasRows) aliasMap[r.addr] = r.username || null;
+    const p1alias = aliasMap[match.player1_addr.toLowerCase()] || match.player1_addr.slice(0, 8) + '…';
+    const p2alias = aliasMap[match.player2_addr.toLowerCase()] || match.player2_addr.slice(0, 8) + '…';
+
     // Notify both players
     const basePayload = {
       type:           "tournament_match_ready",
       tournamentId:   tournamentDbId,
       matchId:        match.id,
       roomId,
+      round:          match.round,
       buyInUSD:       t.buy_in_usd,
       timeoutSeconds: 180,
     };
-    _sendToAddr(match.player1_addr, { ...basePayload, opponent: match.player2_addr });
-    _sendToAddr(match.player2_addr, { ...basePayload, opponent: match.player1_addr });
+    _sendToAddr(match.player1_addr, { ...basePayload, opponentAddr: match.player2_addr, opponentAlias: p2alias });
+    _sendToAddr(match.player2_addr, { ...basePayload, opponentAddr: match.player1_addr, opponentAlias: p1alias });
 
     // 3-minute join timers — each fires only if the respective player hasn't joined
     const room = _rooms.get(roomId);
@@ -963,6 +938,24 @@ const httpRoutes = [
     },
   },
 
+  // POST /api/tournament/:id/start — admin-only manual trigger
+  {
+    match: (method, url) => method === 'POST' && /^\/api\/tournament\/\d+\/start$/.test(url),
+    handler: async (req, res) => {
+      const adminKey = process.env.TOURNAMENT_ADMIN_KEY || 'pengpool-admin';
+      if (req.headers['x-admin-key'] !== adminKey) {
+        return _json(res, 403, { error: 'Forbidden' });
+      }
+      const id = parseInt(req.url.split('/')[3], 10);
+      try {
+        await startTournamentById(id);
+        _json(res, 200, { ok: true });
+      } catch (e) {
+        _json(res, 400, { error: e.message });
+      }
+    },
+  },
+
   // POST /api/tournament/register-participant
   {
     match: (method, url) => method === 'POST' && url === '/api/tournament/register-participant',
@@ -1014,7 +1007,6 @@ const httpRoutes = [
 
 module.exports = {
   initTournament,
-  createRegularTournament,
   createCustomTournament,
   startTournamentById,
   generateBracket,
