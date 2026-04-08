@@ -49,7 +49,7 @@ function _authMessage(nonce) {
 const _SESSION_TOKEN_KEY = 'pp_session_token';
 const _SESSION_TS_KEY    = 'pp_session_ts';
 const _SESSION_TTL       = 7 * 24 * 60 * 60 * 1000; // 7 days
-let _signingInProgress = false;
+let _signingPromise = null;
 
 function _getSessionToken() {
   try {
@@ -105,13 +105,20 @@ function _connectNotifWs(addr) {
           _authUsedToken = true;
           _notifWs.send(JSON.stringify({ type: 'auth_token', addr, token }));
         } else if (w?.isConnected()) {
-          if (_signingInProgress) return;
-          _signingInProgress = true;
+          if (_signingPromise) {
+            await _signingPromise;
+            const t = _getSessionToken();
+            if (t) _notifWs.send(JSON.stringify({ type: 'auth_token', addr, token: t }));
+            return;
+          }
+          let _resolve;
+          _signingPromise = new Promise(r => { _resolve = r; });
           try {
             const signature = await w.signMessage(_authMessage(msg.nonce));
             _notifWs.send(JSON.stringify({ type: 'auth_response', addr, signature }));
           } finally {
-            _signingInProgress = false;
+            _signingPromise = null;
+            _resolve();
           }
         } else {
           _notifWs.send(JSON.stringify({ type: 'auth_skip' }));
@@ -225,13 +232,20 @@ function _connectWS(gameId, playerNum, addr) {
           if (token) {
             _ws.send(JSON.stringify({ type: 'auth_token', addr, token }));
           } else {
-            if (_signingInProgress) return;
-            _signingInProgress = true;
+            if (_signingPromise) {
+              await _signingPromise;
+              const t = _getSessionToken();
+              if (t) _ws.send(JSON.stringify({ type: 'auth_token', addr, token: t }));
+              return;
+            }
+            let _resolve;
+            _signingPromise = new Promise(r => { _resolve = r; });
             try {
               const signature = await w.signMessage(_authMessage(msg.nonce));
               _ws.send(JSON.stringify({ type: 'auth_response', addr, signature }));
             } finally {
-              _signingInProgress = false;
+              _signingPromise = null;
+              _resolve();
             }
           }
         }
@@ -296,13 +310,20 @@ async function _mmOnMessage(msg) {
       if (token) {
         _mmSend({ type: 'auth_token', addr: myAddr, token });
       } else {
-        if (_signingInProgress) return;
-        _signingInProgress = true;
+        if (_signingPromise) {
+          await _signingPromise;
+          const t = _getSessionToken();
+          if (t) _mmSend({ type: 'auth_token', addr: myAddr, token: t });
+          return;
+        }
+        let _resolve;
+        _signingPromise = new Promise(r => { _resolve = r; });
         try {
           const signature = await w.signMessage(_authMessage(msg.nonce));
           _mmSend({ type: 'auth_response', addr: myAddr, signature });
         } finally {
-          _signingInProgress = false;
+          _signingPromise = null;
+          _resolve();
         }
       }
     } catch(e) {
