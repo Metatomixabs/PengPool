@@ -1425,16 +1425,6 @@ function drawBall(b) {
     // Cue Ball Base
     cx.fillStyle = '#ffffff';
     cx.fillRect(-R, -R, R * 2, R * 2);
-    // Abstract logo — single centered instance, rotates with ball
-    if (ABSTRACT_LOGO.complete && ABSTRACT_LOGO.naturalWidth) {
-      const logoSize = R * 1.2;
-      cx.save();
-      cx.rotate(b.visualAngle || 0);
-      cx.globalAlpha = 0.85;
-      cx.drawImage(ABSTRACT_LOGO, -R * 0.6, -R * 0.6, logoSize, logoSize);
-      cx.globalAlpha = 1;
-      cx.restore();
-    }
   } else {
     const sprite = ballSprites[b.id];
     const frameIndex = Math.floor((b.totalRotation || 0) * 13) % SPRITE_FRAMES;
