@@ -215,8 +215,35 @@
 
   function _extractRevert(err) {
     var raw = (err && (err.shortMessage || err.message)) || String(err);
+    var lo  = raw.toLowerCase();
+
+    // 1. Usuario rechazó
+    if ((err && err.code === 4001) || lo.includes('user rejected') || lo.includes('user denied')) {
+      return 'Transaction cancelled';
+    }
+
+    // 2. Revert con reason string
     var m = raw.match(/reverted with reason string '(.+?)'/);
-    return m ? m[1] : raw;
+    if (m) return m[1];
+
+    // 3. Nonce / replacement fee
+    if (lo.includes('nonce') || lo.includes('replacement fee')) {
+      return 'Wallet sync error — please disconnect and reconnect your wallet';
+    }
+
+    // 4. Gas / fondos insuficientes
+    if (lo.includes('insufficient funds') || lo.includes('gas required exceeds')) {
+      return 'Insufficient funds to cover the transaction fee';
+    }
+
+    // 5. RPC timeout / network
+    if (lo.includes('timeout') || lo.includes('network') || lo.includes('failed to fetch') || lo.includes('unknown rpc error')) {
+      return 'Network error — please check your connection and try again';
+    }
+
+    // 6. Fallback — truncado a 80 chars
+    var short = (err && err.shortMessage) || raw;
+    return (short.length > 80 ? short.slice(0, 80) + '\u2026' : short) + ' — please try again';
   }
 
   function _fail(ctx, err) {

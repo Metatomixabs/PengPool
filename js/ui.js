@@ -1763,6 +1763,12 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
           btn.textContent = '↩ Reclaim Stuck Deposit';
           return;
         }
+        if (dep.matched) {
+          resultEl.innerHTML = '<span style="color:#f0c040">You are currently in an active match — cannot reclaim deposit.</span>';
+          btn.disabled = false;
+          btn.textContent = '↩ Reclaim Stuck Deposit';
+          return;
+        }
         btn.textContent = 'Withdrawing…';
         await _w.withdrawDeposit();
         resultEl.innerHTML = '<span style="color:#00c951">✅ Deposit reclaimed!</span>';

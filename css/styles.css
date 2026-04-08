@@ -1560,6 +1560,19 @@ canvas {
   border-color: rgba(0, 201, 81, 0.4);
   color: var(--g);
 }
+.social-nav-btn {
+  padding: 5px 7px;
+  line-height: 0;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.social-nav-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
+}
 @media (max-width: 620px) {
   .mm-cols {
     grid-template-columns: 1fr;

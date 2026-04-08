@@ -204,6 +204,8 @@ let bonusShots = 0; // guaranteed shots remaining for the CURRENT player (0–2,
 let ballInHand = false; // true when player may reposition cue ball along the center line
 let p1EightPocket = null; // pocket index (into PKT[]) where P1 must pot the 8-ball
 let p2EightPocket = null; // pocket index (into PKT[]) where P2 must pot the 8-ball
+let eightPocketed = false;   // true if the 8-ball entered a pocket this turn
+let eightPocketIndex = -1;   // pocket index where the 8 was pocketed
 
 // ═══════════════════════════
 // PARTICLE SYSTEM
@@ -359,6 +361,8 @@ function initState() {
   ballInHand = false;
   p1EightPocket = null;
   p2EightPocket = null;
+  eightPocketed = false;
+  eightPocketIndex = -1;
   shots = 0;
   running = true;
   guideOn = true;
@@ -768,7 +772,8 @@ function pocketed(b, pi) {
     return;
   }
   if (b.id === 8) {
-    eight(pi);
+    eightPocketed = true;
+    eightPocketIndex = pi;
     return;
   }
   if (!typed) {
@@ -829,27 +834,6 @@ function pocketed(b, pi) {
   renderUI();
 }
 
-function eight(pi) {
-  const my =
-    cur === 1
-      ? p1T === "solid"
-        ? [1, 2, 3, 4, 5, 6, 7]
-        : [9, 10, 11, 12, 13, 14, 15]
-      : p2T === "solid"
-        ? [1, 2, 3, 4, 5, 6, 7]
-        : [9, 10, 11, 12, 13, 14, 15];
-  const rem = balls.filter((b) => !b.out && my.includes(b.id));
-  if (rem.length !== 0) {
-    endGame(cur === 1 ? 2 : 1, "P" + cur + " potted 8 too early!");
-    return;
-  }
-  const myEightPocket = cur === 1 ? p1EightPocket : p2EightPocket;
-  if (myEightPocket !== null && pi !== myEightPocket) {
-    endGame(cur === 1 ? 2 : 1, "Wrong pocket for the 8-ball!");
-    return;
-  }
-  endGame(cur, "Pocketed the 8! 🎉");
-}
 
 function _applyShot(a, p, sx, sy) {
   // Core shot physics — used by both local shoot() and remote applyRemoteShoot()
@@ -864,6 +848,8 @@ function _applyShot(a, p, sx, sy) {
   anyP = false;
   cueP = false;
   foulThisTurn = false;
+  eightPocketed = false;
+  eightPocketIndex = -1;
   firstContactId = null;
   _typedAtShotStart = typed;
   if (typed) {
@@ -1015,6 +1001,29 @@ function shotEnd() {
     bonusShots = 0;
     _updateBonusUI();
     switchTurn();
+  }
+
+  // ── 8-ball resolution ─────────────────────────────────────────────────────
+  if (eightPocketed) {
+    const opp = cur === 1 ? 2 : 1;
+    const myType = cur === 1 ? p1T : p2T;
+    const myGroup = myType === "solid"
+      ? [1, 2, 3, 4, 5, 6, 7]
+      : [9, 10, 11, 12, 13, 14, 15];
+    const stillHasOwnBalls =
+      balls.filter((b) => !b.out && myGroup.includes(b.id)).length > 0;
+    const myTargetPocket = cur === 1 ? p1EightPocket : p2EightPocket;
+
+    if (cueP) {
+      endGame(opp, "Scratch on the 8-ball!");
+    } else if (!typed || stillHasOwnBalls) {
+      endGame(opp, "P" + cur + " potted 8 too early!");
+    } else if (myTargetPocket !== null && eightPocketIndex !== myTargetPocket) {
+      endGame(opp, "Wrong pocket for the 8-ball!");
+    } else {
+      endGame(cur, "Pocketed the 8! 🎉");
+    }
+    return;
   }
 
   // Broadcast authoritative final state to opponent
@@ -1417,12 +1426,12 @@ function drawBall(b) {
     cx.fillStyle = '#ffffff';
     cx.fillRect(-R, -R, R * 2, R * 2);
     // Abstract logo — single centered instance, rotates with ball
-    if (_abstractLogo.complete && _abstractLogo.naturalWidth) {
+    if (ABSTRACT_LOGO.complete && ABSTRACT_LOGO.naturalWidth) {
       const logoSize = R * 1.2;
       cx.save();
       cx.rotate(b.visualAngle || 0);
       cx.globalAlpha = 0.85;
-      cx.drawImage(_abstractLogo, -R * 0.6, -R * 0.6, logoSize, logoSize);
+      cx.drawImage(ABSTRACT_LOGO, -R * 0.6, -R * 0.6, logoSize, logoSize);
       cx.globalAlpha = 1;
       cx.restore();
     }
