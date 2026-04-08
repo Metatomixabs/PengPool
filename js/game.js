@@ -549,7 +549,8 @@ function phys(frameDelta) {
   const dt = frameDelta / 16.667;
   const fricFrame = Math.pow(FRIC_BASE, dt);
   const cueSpeed = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
-  const substeps = Math.max(6, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
+  const minSubsteps = Math.max(6, Math.ceil(dt / 4));
+  const substeps = Math.max(minSubsteps, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
   let mv = false;
   // CCD para bola blanca
   if (cue && !cue.out) {
