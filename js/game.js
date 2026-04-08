@@ -958,37 +958,22 @@ function shotEnd() {
   if (hadBonus) bonusShots--;
 
   // ── Turn result ────────────────────────────────────────────────────────────
-  // During the endgame (8-ball phase) a foul only passes the turn — no 2-shot bonus.
-  // Check both: current player already in endgame (_noOwnBallsAtShotStart), OR
-  // opponent is also in endgame (their last ball was pocketed this shot or earlier).
-  const _oppType = typed ? (cur === 1 ? p2T : p1T) : null;
-  const _oppGroup =
-    _oppType === "solid"
-      ? [1, 2, 3, 4, 5, 6, 7]
-      : _oppType === "stripe"
-        ? [9, 10, 11, 12, 13, 14, 15]
-        : null;
-  const inEndgame =
-    _noOwnBallsAtShotStart ||
-    (_oppGroup &&
-      balls.filter((b) => !b.out && _oppGroup.includes(b.id)).length === 0);
   if (cueP) {
-    // Scratch — ball in hand for opponent; 2-shot bonus only outside endgame
+    // Scratch — ball in hand for opponent; 2-shot bonus always (except scratch + 8-ball = instant loss)
     cue.out = false;
     cue.x = 223;
     cue.y = H / 2;
     cue.vx = 0;
     cue.vy = 0;
     foul();
-    if (!inEndgame || !eightPocketed) bonusShots = 2;
+    if (!eightPocketed) bonusShots = 2;
     ballInHand = true;
     _updateBonusUI();
     switchTurn();
   } else if (foulThisTurn) {
-    // First-contact foul or pocketed wrong ball
-    // 2-shot bonus outside endgame, OR in endgame if player didn't touch any ball
+    // First-contact foul or pocketed wrong ball — always 2 bonus shots
     foul();
-    if (!inEndgame || firstContactId === null) bonusShots = 2;
+    bonusShots = 2;
     _updateBonusUI();
     switchTurn();
   } else if (hadBonus && bonusShots > 0) {
