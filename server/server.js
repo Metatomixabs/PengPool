@@ -690,7 +690,7 @@ function _authMsg(nonce) {
     "PengPool Session Login\n\n" +
     "By signing this message you are verifying ownership of your wallet.\n" +
     "This signature does not grant access to your funds or execute any transaction.\n" +
-    "Valid for 24 hours.\n\n" +
+    "Valid for 7 days.\n\n" +
     "Nonce: " + nonce
   );
 }
