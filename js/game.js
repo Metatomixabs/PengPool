@@ -978,7 +978,7 @@ function shotEnd() {
     cue.vx = 0;
     cue.vy = 0;
     foul();
-    if (!inEndgame) bonusShots = 2;
+    if (!inEndgame || !eightPocketed) bonusShots = 2;
     ballInHand = true;
     _updateBonusUI();
     switchTurn();
