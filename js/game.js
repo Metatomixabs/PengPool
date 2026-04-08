@@ -483,7 +483,9 @@ function resolveCollisions() {
         b.y += ny * ov;
         const dv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
         if (dv > 0) {
-          const impulse = Math.max(dv, ov * 0.5); // impulso mínimo proporcional al solapamiento
+          const impulse = dv > 0.01
+            ? Math.max(dv, ov * 0.5, 0.02)
+            : Math.max(dv, ov * 0.5);
           a.vx -= impulse * nx;
           a.vy -= impulse * ny;
           b.vx += impulse * nx;
@@ -547,7 +549,7 @@ function phys(frameDelta) {
   const dt = frameDelta / 16.667;
   const fricFrame = Math.pow(FRIC_BASE, dt);
   const cueSpeed = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
-  const substeps = Math.max(3, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
+  const substeps = Math.max(6, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
   let mv = false;
   // CCD para bola blanca
   if (cue && !cue.out) {
