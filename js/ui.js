@@ -40,7 +40,7 @@ function _authMessage(nonce) {
     "PengPool Session Login\n\n" +
     "By signing this message you are verifying ownership of your wallet.\n" +
     "This signature does not grant access to your funds or execute any transaction.\n" +
-    "Valid for 24 hours.\n\n" +
+    "Valid for 7 days.\n\n" +
     "Nonce: " + nonce
   );
 }
@@ -48,7 +48,8 @@ function _authMessage(nonce) {
 // ── Session token helpers ─────────────────────────────────────────────────────
 const _SESSION_TOKEN_KEY = 'pp_session_token';
 const _SESSION_TS_KEY    = 'pp_session_ts';
-const _SESSION_TTL       = 24 * 60 * 60 * 1000; // 24 hours
+const _SESSION_TTL       = 7 * 24 * 60 * 60 * 1000; // 7 days
+let _signingInProgress = false;
 
 function _getSessionToken() {
   try {
@@ -104,8 +105,14 @@ function _connectNotifWs(addr) {
           _authUsedToken = true;
           _notifWs.send(JSON.stringify({ type: 'auth_token', addr, token }));
         } else if (w?.isConnected()) {
-          const signature = await w.signMessage(_authMessage(msg.nonce));
-          _notifWs.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+          if (_signingInProgress) return;
+          _signingInProgress = true;
+          try {
+            const signature = await w.signMessage(_authMessage(msg.nonce));
+            _notifWs.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+          } finally {
+            _signingInProgress = false;
+          }
         } else {
           _notifWs.send(JSON.stringify({ type: 'auth_skip' }));
           _resolve();
@@ -218,8 +225,14 @@ function _connectWS(gameId, playerNum, addr) {
           if (token) {
             _ws.send(JSON.stringify({ type: 'auth_token', addr, token }));
           } else {
-            const signature = await w.signMessage(_authMessage(msg.nonce));
-            _ws.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+            if (_signingInProgress) return;
+            _signingInProgress = true;
+            try {
+              const signature = await w.signMessage(_authMessage(msg.nonce));
+              _ws.send(JSON.stringify({ type: 'auth_response', addr, signature }));
+            } finally {
+              _signingInProgress = false;
+            }
           }
         }
         // Send pending join — server buffers it until auth is verified
@@ -283,8 +296,14 @@ async function _mmOnMessage(msg) {
       if (token) {
         _mmSend({ type: 'auth_token', addr: myAddr, token });
       } else {
-        const signature = await w.signMessage(_authMessage(msg.nonce));
-        _mmSend({ type: 'auth_response', addr: myAddr, signature });
+        if (_signingInProgress) return;
+        _signingInProgress = true;
+        try {
+          const signature = await w.signMessage(_authMessage(msg.nonce));
+          _mmSend({ type: 'auth_response', addr: myAddr, signature });
+        } finally {
+          _signingInProgress = false;
+        }
       }
     } catch(e) {
       console.error('[mmWs] Auth error:', e.message);

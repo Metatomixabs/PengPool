@@ -710,7 +710,7 @@ async function _verifyERC1271(addr, message, signature) {
 
 // Session token store: token → { addr, expiresAt }
 const _sessionTokens  = new Map();
-const _SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const _SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // Clean up expired tokens every 30 minutes
 setInterval(() => {
@@ -720,7 +720,24 @@ setInterval(() => {
     if (now > entry.expiresAt) { _sessionTokens.delete(tok); removed++; }
   }
   if (removed) console.log(`[auth] token cleanup — removed ${removed}, ${_sessionTokens.size} active`);
+  db.pool.query('DELETE FROM session_tokens WHERE expires_at < NOW()')
+    .catch(e => console.warn('[auth] DB token cleanup error:', e.message));
 }, 30 * 60 * 1000);
+
+// Load persisted tokens from DB into memory on startup
+(async () => {
+  try {
+    const { rows } = await db.pool.query(
+      'SELECT token, addr, expires_at FROM session_tokens WHERE expires_at > NOW()'
+    );
+    for (const r of rows) {
+      _sessionTokens.set(r.token, { addr: r.addr, expiresAt: new Date(r.expires_at).getTime() });
+    }
+    console.log(`[auth] loaded ${rows.length} session tokens from DB`);
+  } catch(e) {
+    console.warn('[auth] could not load session tokens from DB:', e.message);
+  }
+})();
 
 const wss = new WebSocket.Server({ server: httpServer });
 
@@ -768,7 +785,20 @@ wss.on("connection", (ws, req) => {
       if (msg.type === "auth_token") {
         const { addr, token } = msg;
         if (!addr || !token) { ws.close(1008, "Invalid auth_token"); return; }
-        const entry = _sessionTokens.get(token);
+        let entry = _sessionTokens.get(token);
+        if (!entry) {
+          try {
+            const { rows } = await db.pool.query(
+              'SELECT addr, expires_at FROM session_tokens WHERE token = $1', [token]
+            );
+            if (rows.length) {
+              entry = { addr: rows[0].addr, expiresAt: new Date(rows[0].expires_at).getTime() };
+              _sessionTokens.set(token, entry); // warm cache
+            }
+          } catch(e) {
+            console.warn('[auth] DB token lookup error:', e.message);
+          }
+        }
         if (!entry || Date.now() > entry.expiresAt || entry.addr !== addr.toLowerCase()) {
           console.warn(`[auth] invalid/expired token from ${(addr||'').slice(0,8)}…`);
           ws.close(1008, "Invalid or expired session token"); return;
@@ -802,7 +832,12 @@ wss.on("connection", (ws, req) => {
         ws._addr = addr.toLowerCase();
         // Issue session token so client avoids re-signing on reconnects
         const sessionToken = crypto.randomBytes(32).toString("hex");
-        _sessionTokens.set(sessionToken, { addr: addr.toLowerCase(), expiresAt: Date.now() + _SESSION_TTL_MS });
+        const _expiresAt = Date.now() + _SESSION_TTL_MS;
+        _sessionTokens.set(sessionToken, { addr: addr.toLowerCase(), expiresAt: _expiresAt });
+        db.pool.query(
+          'INSERT INTO session_tokens (token, addr, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token) DO NOTHING',
+          [sessionToken, addr.toLowerCase(), new Date(_expiresAt).toISOString()]
+        ).catch(e => console.warn('[auth] could not persist session token:', e.message));
         console.log(`[auth] authenticated + token issued: ${addr.slice(0,8)}…`);
         _send(ws, { type: "auth_token_issued", token: sessionToken });
         const buf = ws._msgBuffer; ws._msgBuffer = [];
