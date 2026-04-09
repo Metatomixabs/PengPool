@@ -22,8 +22,8 @@ const R = 11,
   MINS = 0.1,
   MAXP = 18,
   PR = 21;
-const WL = 53,
-  WR = W - 54,
+const WL = 55,
+  WR = W - 56,
   WT = 76,
   WB = H - 63;
 const _cgTLh = 30,
@@ -41,17 +41,17 @@ const _cgTLh = 30,
 const DEBUG_CUSHIONS = false; // DEBUG: set to true to visualize cushion rails and gaps
 const debugSegments = [
   [W / 1.08 - 25, H / 5.05 - 25, W / 1.0165 + 25, H / -20 + 25], // Line right-top
-  [W / 1.036 - 25, H / 3.85 - 25, W / 1.01 + 25, H / 70 + 25], // Line right(right-top)
+  [W / 1.040 - 25, H / 3.8 - 25, W / 1.03 + 25, H / 70 + 25], // Line right(right-top)
   [W / 7.5 - 25, H / 1.08 - 25, W / -60 + 25, H / 1.065 + 25], // Line left-bottom
-  [W / 10.45 - 25, H / 1.155 - 25, W / -30 + 25, H / 1.13 + 25], // Line left(left-bottom)
+  [W / 10.10 - 25, H / 1.155 - 25, W / -30 + 25, H / 1.13 + 25], // Line left(left-bottom)
   [W / 1.88 - 25, H / 10 - 25, W / 2.31 + 25, H / 10 + 25], // Line center-top-left
   [W / 1.9 - 25, H / 10 - 25, W / 1.98 + 25, H / 10 + 25], // Line center-top-right
   [W / 1.77 - 25, H / 1.08 - 25, W / 2.13 + 25, H / 1.065 + 25], // Line center-bottom-right
   [W / 2.03 - 25, H / 1.08 - 25, W / 2.1 + 25, H / 1.065 + 25], // Line center-bottom-left
-  [W / 1.08 - 25, H / 1.08 - 25, W / 1.053 + 25, H / 1.065 + 25], // Line right-bottom
-  [W / 1.036 - 25, H / 1.15 - 25, W / 1.01 + 25, H / 1.1 + 25], // Line right(right-bottom)
+  [W / 1.081 - 25, H / 1.08 - 25, W / 1.067 + 25, H / 1.065 + 25], // Line right-bottom
+  [W / 1.041 - 25, H / 1.15 - 25, W / 1.025 + 25, H / 1.1 + 25], // Line right(right-bottom)
   [W / 14 - 25, H / 9 - 25, W / 14 + 25, H / 10.2 + 25], // Line left-top
-  [W / 30 - 25, H / 6.5 - 25, W / 30 + 25, H / 6.5 + 25], // Line left(left-top)
+  [W / 28 - 25, H / 6.5 - 25, W / 28 + 25, H / 6.3 + 25], // Line left(left-top)
 ];
 
 const BD = {
@@ -158,13 +158,13 @@ const corners = [
   {cx: 368, cy: 440},  // central bot izq
   {cx: 429, cy: 440},  // central bot der
   {cx: 84,  cy: 73},   // TL horizontal
-  {cx: 50,  cy: 104.5},  // TL vertical
+  {cx: 52,  cy: 106.5},  // TL vertical
   {cx: 713.5, cy: 73},   // TR horizontal
-  {cx: 749, cy: 107.5},  // TR vertical
+  {cx: 747, cy: 107.5},  // TR vertical
   {cx: 83,  cy: 440},  // BL horizontal
-  {cx: 50,  cy: 407},  // BL vertical
-  {cx: 714, cy: 440},  // BR horizontal
-  {cx: 748.5, cy: 407},  // BR vertical
+  {cx: 52,  cy: 407},  // BL vertical
+  {cx: 713, cy: 440},  // BR horizontal
+  {cx: 746.5, cy: 409},  // BR vertical
 ];
 
 let balls,
