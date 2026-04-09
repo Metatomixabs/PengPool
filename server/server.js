@@ -1055,6 +1055,7 @@ wss.on("connection", (ws, req) => {
         ws._specId  = specId;
         ws._gameId  = gameId;
         ws._isSpec  = true;
+        ws._alias   = msg.alias || '';
         room.spectators.set(specId, ws);
         _send(ws, {
           type:      'spectate_start',

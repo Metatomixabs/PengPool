@@ -2461,9 +2461,10 @@ canvas {
   background: rgba(7, 16, 30, 0.85);
   border: 1px solid rgba(120, 200, 255, 0.2);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
   z-index: 200;
   backdrop-filter: blur(10px);
+  transition: width 0.2s ease;
 }
 #chat-controls {
   display: flex;

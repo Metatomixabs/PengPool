@@ -2544,7 +2544,9 @@ window._debugWithdrawDeposit = async function() {
 })();
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-const CHAT_SIZES = [80, 140, 200, 280, 380];
+const CHAT_SIZES  = [80, 140, 200, 280, 380];
+const CHAT_WIDTHS = [200, 240, 290, 350, 420];
+const CHAT_FONTS  = [11, 12, 13, 15, 17];
 let _chatSizeIdx = 1;
 
 function _chatAppend(from, text, isSelf, extraClass) {
@@ -2569,6 +2571,11 @@ function _chatAppend(from, text, isSelf, extraClass) {
 
   function _applyChatSize() {
     if (msgs) msgs.style.height = CHAT_SIZES[_chatSizeIdx] + 'px';
+    const box = document.getElementById('chat-box');
+    if (box) {
+      box.style.width    = CHAT_WIDTHS[_chatSizeIdx] + 'px';
+      box.style.fontSize = CHAT_FONTS[_chatSizeIdx] + 'px';
+    }
     if (zoomOut) zoomOut.disabled = _chatSizeIdx === 0;
     if (zoomIn)  zoomIn.disabled  = _chatSizeIdx === CHAT_SIZES.length - 1;
   }
