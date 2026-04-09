@@ -395,6 +395,7 @@ async function _mmOnMessage(msg) {
     toast('Match found! Connecting…');
     show('game');
     const _cb1 = document.getElementById('chat-box'); if (_cb1) _cb1.style.display = 'flex';
+    const _bs1 = document.getElementById('chat-block-spec'); if (_bs1) _bs1.style.display = 'block';
     _showWaitingOverlay();
     _connectWS(currentGameId, 1, addr);
   }
@@ -428,6 +429,7 @@ async function _mmOnMessage(msg) {
     toast('Match found! Connecting…');
     show('game');
     const _cb2 = document.getElementById('chat-box'); if (_cb2) _cb2.style.display = 'flex';
+    const _bs2 = document.getElementById('chat-block-spec'); if (_bs2) _bs2.style.display = 'block';
     _showWaitingOverlay();
     _connectWS(currentGameId, 2, addr);
   }
@@ -745,7 +747,13 @@ function _wsOnMessage(msg) {
     toast('Opponent reconnected!');
   }
   else if (msg.type === 'chat') {
-    _chatAppend(msg.from, msg.text, false);
+    const isSpec = msg.isSpec === true;
+    _chatAppend(msg.from, msg.text, false, isSpec ? 'chat-spec' : '');
+  }
+  else if (msg.type === 'spec_mute_state') {
+    const blockBtn = document.getElementById('chat-block-spec');
+    if (blockBtn) blockBtn.classList.toggle('muted', msg.muted);
+    _chatAppend('System', msg.muted ? 'Spectator chat blocked' : 'Spectator chat allowed', false, 'chat-system');
   }
 
   else if (msg.type === 'settled') {
@@ -808,6 +816,7 @@ function _wsOnMessage(msg) {
     if (p2label) p2label.textContent = msg.p2alias || 'Player 2';
     const badge = document.getElementById('spectatorBadge');
     if (badge) badge.style.display = 'block';
+    const _cbSpec = document.getElementById('chat-box'); if (_cbSpec) _cbSpec.style.display = 'flex';
     _matchReady = true;
     _hideWaitingOverlay();
   }
@@ -991,6 +1000,7 @@ function _tOnMatchReady(msg) {
     gameMode        = 'multiplayer';
     show('game');
     const _cbt = document.getElementById('chat-box'); if (_cbt) _cbt.style.display = 'flex';
+    const _bst = document.getElementById('chat-block-spec'); if (_bst) _bst.style.display = 'block';
     _showWaitingOverlay();
     _connectWS(msg.roomId, 1, addr);
   };
@@ -2031,6 +2041,7 @@ function _resetGS(alreadySentLeave){
   if(p1lbl)p1lbl.textContent='Player 1';if(p2lbl)p2lbl.textContent='Player 2';
   const _chatBox=document.getElementById('chat-box');if(_chatBox)_chatBox.style.display='none';
   const _chatMsgs=document.getElementById('chat-msgs');if(_chatMsgs)_chatMsgs.innerHTML='';
+  const _bsBtn=document.getElementById('chat-block-spec');if(_bsBtn){_bsBtn.style.display='none';_bsBtn.classList.remove('muted');}
 }
 
 function _confirmLeaveLobby(withMusic) {
@@ -2533,11 +2544,14 @@ window._debugWithdrawDeposit = async function() {
 })();
 
 // ── Chat ──────────────────────────────────────────────────────────────────
-function _chatAppend(from, text, isSelf) {
+const CHAT_SIZES = [80, 140, 200, 280, 380];
+let _chatSizeIdx = 1;
+
+function _chatAppend(from, text, isSelf, extraClass) {
   const msgs = document.getElementById('chat-msgs');
   if (!msgs) return;
   const row = document.createElement('div');
-  row.className = 'chat-msg' + (isSelf ? ' chat-self' : '');
+  row.className = 'chat-msg' + (isSelf ? ' chat-self' : '') + (extraClass ? ' ' + extraClass : '');
   row.innerHTML = '<span class="chat-from">' + from.replace(/</g, '&lt;') + '</span> '
                 + '<span class="chat-text">' + text.replace(/</g, '&lt;') + '</span>';
   msgs.appendChild(row);
@@ -2545,12 +2559,31 @@ function _chatAppend(from, text, isSelf) {
 }
 
 (function () {
-  const input = document.getElementById('chat-input');
-  const btn   = document.getElementById('chat-send');
+  const input    = document.getElementById('chat-input');
+  const btn      = document.getElementById('chat-send');
+  const zoomOut  = document.getElementById('chat-zoom-out');
+  const zoomIn   = document.getElementById('chat-zoom-in');
+  const blockBtn = document.getElementById('chat-block-spec');
+  const msgs     = document.getElementById('chat-msgs');
   if (!input || !btn) return;
+
+  function _applyChatSize() {
+    if (msgs) msgs.style.height = CHAT_SIZES[_chatSizeIdx] + 'px';
+    if (zoomOut) zoomOut.disabled = _chatSizeIdx === 0;
+    if (zoomIn)  zoomIn.disabled  = _chatSizeIdx === CHAT_SIZES.length - 1;
+  }
+  _applyChatSize();
+
+  if (zoomOut) zoomOut.addEventListener('click', () => { if (_chatSizeIdx > 0) { _chatSizeIdx--; _applyChatSize(); } });
+  if (zoomIn)  zoomIn.addEventListener('click',  () => { if (_chatSizeIdx < CHAT_SIZES.length - 1) { _chatSizeIdx++; _applyChatSize(); } });
+
+  if (blockBtn) blockBtn.addEventListener('click', () => {
+    _wsSend({ type: 'block_spectators', gameId: currentGameId });
+  });
+
   function _sendChat() {
     const text = input.value.trim();
-    if (!text || gameMode !== 'multiplayer' || !currentGameId) return;
+    if (!text || (gameMode !== 'multiplayer' && gameMode !== 'spectator') || !currentGameId) return;
     _wsSend({ type: 'chat', gameId: currentGameId, text });
     _chatAppend('You', text, true);
     input.value = '';

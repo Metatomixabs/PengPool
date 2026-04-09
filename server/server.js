@@ -1071,7 +1071,7 @@ wss.on("connection", (ws, req) => {
       ws._addr      = msg.addr || "";
       ws._alias     = msg.alias || "";
 
-      if (!rooms.has(gameId)) rooms.set(gameId, {});
+      if (!rooms.has(gameId)) rooms.set(gameId, { specMutedByP1: false, specMutedByP2: false });
       const room = rooms.get(gameId);
 
       // For tournament rooms, determine playerNum from pre-assigned addresses
@@ -1214,9 +1214,35 @@ wss.on("connection", (ws, req) => {
       if (!room) return;
       const text = String(msg.text || '').trim().slice(0, 200);
       if (!text) return;
-      const alias = ws._alias || (ws._playerNum === 1 ? room.p1alias : room.p2alias) || `P${ws._playerNum}`;
-      const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, { type: 'chat', from: alias, text });
+
+      if (ws._isSpec) {
+        // Spectator sender — relay to players (respecting their mute) and other spectators
+        const alias = '[Spec] ' + (ws._alias || 'Spectator');
+        const chatMsg = { type: 'chat', from: alias, text, isSpec: true };
+        if (!room.specMutedByP1) _send(room.p1, chatMsg);
+        if (!room.specMutedByP2) _send(room.p2, chatMsg);
+        if (room.spectators) {
+          for (const [sid, spec] of room.spectators) {
+            if (spec !== ws) _send(spec, chatMsg);
+          }
+        }
+      } else {
+        // Player sender — relay to opponent and all spectators
+        const alias = ws._alias || (ws._playerNum === 1 ? room.p1alias : room.p2alias) || `P${ws._playerNum}`;
+        const other = ws._playerNum === 1 ? room.p2 : room.p1;
+        const chatMsg = { type: 'chat', from: alias, text, isSpec: false };
+        _send(other, chatMsg);
+        _sendSpectators(ws._gameId, chatMsg);
+      }
+    }
+
+    else if (msg.type === "block_spectators") {
+      const room = rooms.get(ws._gameId);
+      if (!room || ws._isSpec) return;
+      if (ws._playerNum === 1) room.specMutedByP1 = !room.specMutedByP1;
+      if (ws._playerNum === 2) room.specMutedByP2 = !room.specMutedByP2;
+      const muted = ws._playerNum === 1 ? room.specMutedByP1 : room.specMutedByP2;
+      _send(ws, { type: 'spec_mute_state', muted });
     }
 
     // ── sound  (shooter relays collision/rail/pocket sounds to opponent) ──

@@ -2465,20 +2465,66 @@ canvas {
   z-index: 200;
   backdrop-filter: blur(10px);
 }
+#chat-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 4px 6px 0;
+}
+#chat-zoom-out, #chat-zoom-in {
+  background: none;
+  border: 1px solid rgba(120,200,255,0.15);
+  color: rgba(120,200,255,0.45);
+  font-size: 11px;
+  width: 17px;
+  height: 17px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#chat-zoom-out:hover:not(:disabled), #chat-zoom-in:hover:not(:disabled) { color: rgba(120,200,255,0.9); border-color: rgba(120,200,255,0.4); }
+#chat-zoom-out:disabled, #chat-zoom-in:disabled { opacity: 0.2; cursor: default; }
 #chat-msgs {
   overflow-y: auto;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 170px;
+  height: 140px;
+  transition: height 0.2s ease;
 }
 #chat-msgs::-webkit-scrollbar { width: 3px; }
 #chat-msgs::-webkit-scrollbar-thumb { background: rgba(120,200,255,0.2); border-radius: 2px; }
 .chat-msg { font-family: 'Space Mono', monospace; font-size: 10px; line-height: 1.4; word-break: break-word; }
 .chat-from { color: var(--g); font-weight: 700; }
 .chat-self .chat-from { color: var(--t2); }
+.chat-spec .chat-from { color: rgba(180,140,255,0.85); }
+.chat-system .chat-from { color: rgba(255,200,80,0.7); font-style: italic; }
 .chat-text { color: var(--t); }
+#chat-block-spec {
+  display: none;
+  position: absolute;
+  bottom: 16px;
+  left: 268px;
+  background: rgba(7,16,30,0.85);
+  border: 1px solid rgba(120,200,255,0.2);
+  border-radius: 8px;
+  color: rgba(120,200,255,0.55);
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  padding: 4px 8px;
+  cursor: pointer;
+  z-index: 200;
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+#chat-block-spec:hover { border-color: rgba(120,200,255,0.45); color: rgba(120,200,255,0.9); }
+#chat-block-spec.muted { border-color: rgba(255,100,100,0.4); color: rgba(255,100,100,0.75); }
 #chat-input-row {
   display: flex;
   border-top: 1px solid rgba(120, 200, 255, 0.1);
