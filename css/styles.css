@@ -2500,7 +2500,7 @@ canvas {
 }
 #chat-msgs::-webkit-scrollbar { width: 3px; }
 #chat-msgs::-webkit-scrollbar-thumb { background: rgba(120,200,255,0.2); border-radius: 2px; }
-.chat-msg { font-family: 'Space Mono', monospace; font-size: 10px; line-height: 1.4; word-break: break-word; }
+.chat-msg { font-family: 'Space Mono', monospace; font-size: inherit; line-height: 1.4; word-break: break-word; }
 .chat-from { color: var(--g); font-weight: 700; }
 .chat-self .chat-from { color: var(--t2); }
 .chat-spec .chat-from { color: rgba(180,140,255,0.85); }
@@ -2540,7 +2540,7 @@ canvas {
   outline: none;
   color: var(--t);
   font-family: 'Space Mono', monospace;
-  font-size: 10px;
+  font-size: inherit;
   padding: 2px 4px;
 }
 #chat-input::placeholder { color: rgba(255,255,255,0.25); }
@@ -2548,7 +2548,7 @@ canvas {
   background: none;
   border: none;
   color: var(--g);
-  font-size: 14px;
+  font-size: inherit;
   cursor: pointer;
   padding: 0 2px;
   line-height: 1;
