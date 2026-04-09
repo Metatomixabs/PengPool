@@ -1517,9 +1517,22 @@ function _cueMouseMove(e){
     }
   }
 }
+function _cueCancelShot(e){
+  e.preventDefault();
+  if(!charging)return;
+  charging=false;
+  pwr=0;
+  angle=_lockedAngle;
+  _dragOrigin=null;
+  document.removeEventListener('mousemove',_cueMouseMove);
+  document.removeEventListener('mouseup',_cueMouseUp);
+  document.removeEventListener('contextmenu',_cueCancelShot);
+  document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';
+}
 function _cueMouseUp(){
   document.removeEventListener('mousemove',_cueMouseMove);
   document.removeEventListener('mouseup',_cueMouseUp);
+  document.removeEventListener('contextmenu',_cueCancelShot);
   if(!charging)return;
   charging=false;
   if(pwr>2){shoot();if(typeof window.resetSpin==='function')window.resetSpin();}
@@ -1545,6 +1558,7 @@ C.addEventListener('mousedown',e=>{
   charging=true;pwr=0;
   document.addEventListener('mousemove',_cueMouseMove);
   document.addEventListener('mouseup',_cueMouseUp);
+  document.addEventListener('contextmenu',_cueCancelShot);
 });
 C.addEventListener('mousemove',_cueMouseMove);
 C.addEventListener('mouseleave',()=>{aiming=false;});
