@@ -1529,7 +1529,8 @@ function _cueCancelShot(e){
   document.removeEventListener('contextmenu',_cueCancelShot);
   document.getElementById('pwf').style.width='0%';document.getElementById('pwpct').textContent='0%';
 }
-function _cueMouseUp(){
+function _cueMouseUp(e){
+  if(e&&e.button!==0)return; // ignore right-click mouseup — contextmenu handles cancel
   document.removeEventListener('mousemove',_cueMouseMove);
   document.removeEventListener('mouseup',_cueMouseUp);
   document.removeEventListener('contextmenu',_cueCancelShot);
