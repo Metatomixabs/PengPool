@@ -309,6 +309,12 @@ function _broadcastQueueCounts() {
 // Try to match two players in a queue
 async function _tryMatch(betKey) {
   const queue = mmQueues[betKey];
+  // Purge zombie entries whose WebSocket closed without a close event
+  for (const [addr, entry] of queue) {
+    if (entry.ws.readyState !== WebSocket.OPEN) {
+      queue.delete(addr);
+    }
+  }
   if (queue.size < 2) return;
   const entries = Array.from(queue.values());
   for (let i = 0; i < entries.length; i++) {
@@ -1356,8 +1362,11 @@ wss.on("connection", (ws, req) => {
       }
       return;
     }
-    // Remove from matchmaking queue if present
-    for (const q of Object.values(mmQueues)) q.delete(ws._addr);
+    // Remove from matchmaking queue if present — only if this ws is still the current entry
+    for (const q of Object.values(mmQueues)) {
+      const entry = q.get(ws._addr);
+      if (entry && entry.ws === ws) q.delete(ws._addr);
+    }
     if (!ws._gameId) return;
     const room = rooms.get(ws._gameId);
     if (!room) return;
