@@ -94,6 +94,10 @@ const ballSprites = {};
 const SPRITE_COLS = 12,
   SPRITE_ROWS = 10,
   SPRITE_FRAMES = 120;
+const WHITE_SPRITE_COLS = 12;
+const WHITE_SPRITE_ROWS = 10;
+const WHITE_SPRITE_FRAMES = 120;
+const WB_CROP = { x: 571, y: 151, w: 777, h: 777 };
 
 // ── Ball render cache ─────────────────────────────────────────────────────────
 // _ballOverlayCanvas: shading, specular and rim pre-baked once at startup.
@@ -139,8 +143,14 @@ const _ballOverlayCanvas = (function () {
   return oc;
 })();
 
+let whiteBallSprite = null;
+const wbImg = new Image();
+wbImg.src = 'assets/balls_sprites/spritesheet3.png';
+wbImg.onload = () => { whiteBallSprite = wbImg; };
+
 // _spriteDims: cached {fw, fh} per ball id — avoids dividing sprite dimensions every frame.
 const _spriteDims = {};
+let _wbSpriteDims = null;
 
 const PRAIL = 28;
 const PKT = [
@@ -389,6 +399,8 @@ function initState() {
     out: false,
     totalRotation: 0,
     visualAngle: 0,
+    wbFrame: 0,
+    lastAngle: 0,
   };
   balls.push(cue);
   // Fixed standard 8-ball rack (WPA rules):
@@ -718,15 +730,19 @@ function phys(frameDelta) {
       }
       b.vx *= fricFrame;
       b.vy *= fricFrame;
-      if (b.id !== 0) {
-        b.totalRotation = b.totalRotation + spd * 0.075;
+      b.totalRotation = b.totalRotation + spd * 0.075;
+      if (b.id === 0) {
+        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        if (spd > 0.1) {
+          b.wbFrame = (b.wbFrame + spd * 1.0 + WHITE_SPRITE_FRAMES) % WHITE_SPRITE_FRAMES;
+        }
       }
       if (b.vx * b.vx + b.vy * b.vy < MINS * MINS) {
         b.vx = 0;
         b.vy = 0;
       }
       // Update visual rotation direction AFTER all velocity reflections are applied
-      if (b.id !== 0) {
+      {
         const curSpd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
         if (curSpd > 0.3) {
           const tgt = Math.atan2(b.vy, b.vx);
@@ -1410,9 +1426,32 @@ function drawBall(b) {
   cx.clip();
 
   if (b.id === 0) {
-    // Cue Ball Base
-    cx.fillStyle = '#ffffff';
-    cx.fillRect(-R, -R, R * 2, R * 2);
+    if (whiteBallSprite) {
+      const frameIndex = Math.floor(b.wbFrame || 0) % WHITE_SPRITE_FRAMES;
+      if (!_wbSpriteDims) {
+        _wbSpriteDims = {
+          fw: whiteBallSprite.width / WHITE_SPRITE_COLS,
+          fh: whiteBallSprite.height / WHITE_SPRITE_ROWS
+        };
+      }
+      const { fw, fh } = _wbSpriteDims;
+      const col = frameIndex % WHITE_SPRITE_COLS;
+      const row = Math.floor(frameIndex / WHITE_SPRITE_COLS);
+      const srcX = col * fw + WB_CROP.x;
+      const srcY = row * fh + WB_CROP.y;
+      const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      const angle = spd > 0.1 ? Math.atan2(b.vy, b.vx) : (b.lastAngle || 0);
+      if (spd > 0.1) b.lastAngle = angle;
+      cx.save();
+      cx.rotate(angle);
+      const WB_SCALE = 1.15;
+      cx.drawImage(whiteBallSprite, srcX, srcY, WB_CROP.w, WB_CROP.h,
+          -R * WB_SCALE, -R * WB_SCALE, R * 2 * WB_SCALE, R * 2 * WB_SCALE);
+      cx.restore();
+    } else {
+      cx.fillStyle = '#ffffff';
+      cx.fillRect(-R, -R, R * 2, R * 2);
+    }
   } else {
     const sprite = ballSprites[b.id];
     const frameIndex = Math.floor((b.totalRotation || 0) * 13) % SPRITE_FRAMES;
