@@ -658,6 +658,7 @@ function applyRemoteShoot() {
 
 function shotEnd() {
   if (!running) return;
+  const shooterNum = cur; // capture before any switchTurn() mutates cur
   // Opponent's shot: physics runs only on their machine — just wait for result message
   if (
     typeof gameMode !== "undefined" &&
@@ -752,26 +753,27 @@ function shotEnd() {
 
   // ── 8-ball resolution ─────────────────────────────────────────────────────
   if (eightPocketed) {
-    const opp = cur === 1 ? 2 : 1;
-    const myType = cur === 1 ? p1T : p2T;
+    const shooter  = shooterNum;
+    const opponent = shooterNum === 1 ? 2 : 1;
+    const myType = shooterNum === 1 ? p1T : p2T;
     const myGroup = myType === "solid"
       ? [1, 2, 3, 4, 5, 6, 7]
       : [9, 10, 11, 12, 13, 14, 15];
     const stillHasOwnBalls =
       balls.filter((b) => !b.out && myGroup.includes(b.id)).length > 0;
-    const myTargetPocket = cur === 1 ? p1EightPocket : p2EightPocket;
+    const myTargetPocket = shooterNum === 1 ? p1EightPocket : p2EightPocket;
 
     // Send final ball state (8-ball out=true) before gameover so server has it
     if (typeof window._wsOnGameoverResult === "function") window._wsOnGameoverResult(_gatherResult());
 
     if (cueP) {
-      endGame(opp, "Scratch on the 8-ball!");
+      endGame(opponent, "Scratch on the 8-ball!");
     } else if (!typed || stillHasOwnBalls) {
-      endGame(opp, "P" + cur + " potted 8 too early!");
+      endGame(opponent, "P" + shooter + " potted 8 too early!");
     } else if (myTargetPocket !== null && eightPocketIndex !== myTargetPocket) {
-      endGame(opp, "Wrong pocket for the 8-ball!");
+      endGame(opponent, "Wrong pocket for the 8-ball!");
     } else {
-      endGame(cur, "Pocketed the 8! 🎉");
+      endGame(shooter, "Pocketed the 8! 🎉");
     }
     return;
   }
