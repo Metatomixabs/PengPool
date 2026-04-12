@@ -240,7 +240,7 @@ function initTournament(wss, pool, wallet, provider, rooms) {
         );
       }
     } catch (e) {
-      console.error("[tournament cron] auto-start check failed:", e.message);
+      console.error("[tournament cron] auto-start check failed:", e);
     }
 
     // 2. Cancel abandoned registration tournaments: start_time passed >30 min ago, <2 participants.
