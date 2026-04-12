@@ -331,7 +331,9 @@ function simulateShot(ballsSnapshot, angleRad, power, spinX, spinY) {
   };
 }
 
-// ── Exporta para Node.js, no hace nada en browser ────────────────────────────
+// ── Exporta para Node.js; registra en window para browser ────────────────────
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { simulateShot, _phys, _resolveCollisions };
+} else if (typeof window !== 'undefined') {
+  window._phys = _phys;
 }
