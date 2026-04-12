@@ -1145,8 +1145,15 @@ window._wsOnInit = function() {
 };
 
 // Hook called by game.js after every local shot in multiplayer
-window._wsOnShoot = function() {
-  if (gameMode === 'multiplayer') _wsSend({ type: 'shoot', gameId: currentGameId });
+window._wsOnShoot = function(angle, pwr, spinX, spinY) {
+  if (gameMode === 'multiplayer') _wsSend({
+    type: 'shoot',
+    gameId: currentGameId,
+    angle,
+    power: pwr,
+    spinX,
+    spinY
+  });
 };
 
 // Hook called by game.js when balls stop moving (authoritative final state)

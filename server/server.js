@@ -22,6 +22,7 @@ const WebSocket = require("ws");
 const { ethers } = require("ethers");
 const crypto    = require("crypto");
 const db        = require("./db");
+const { simulateShot } = require("../js/physics.js");
 
 
 const PORT = process.env.PORT || 8080;
@@ -162,7 +163,59 @@ function _broadcastRoom(room, obj) {
   _send(room.p2, obj);
 }
 
+// Determines the winner from the last authoritative game state snapshot.
+// FUTURE HOOK: when the server simulates its own physics, replace room.gameState
+// with server-computed state here. The call sites and interface stay unchanged.
+function serverDetermineWinner(gameState) {
+  if (!gameState || !gameState.balls) return null;
+
+  const balls    = gameState.balls;
+  const eightBall = balls.find(b => b.id === 8);
+  const cueBall   = balls.find(b => b.id === 0);
+
+  // If the 8-ball is not pocketed, the gameover is invalid
+  if (!eightBall || !eightBall.out) return null;
+
+  // Cue ball scratch after potting 8 → opponent of current turn wins
+  if (cueBall && cueBall.out) {
+    return gameState.cur === 1 ? 2 : 1;
+  }
+
+  // Current turn player potted the 8 cleanly → they win
+  return gameState.cur === 1 ? 1 : 2;
+}
+
+function serverValidateLastShot(room) {
+  const shot = room.lastShotInput;
+  if (!shot || !shot.ballsSnapshot) return;
+  try {
+    const result = simulateShot(shot.ballsSnapshot, shot.angle, shot.power, shot.spinX, shot.spinY);
+    const label = `[shot-validate] gameId: ${room.gameId ?? '?'} | P${shot.playerNum}`;
+    if (result.timedOut) {
+      console.warn(`${label} | simulation timed out after ${result.steps} steps`);
+    } else {
+      console.log(`${label} | OK — steps: ${result.steps}`);
+    }
+    const repBalls = room.gameState?.balls;
+    if (repBalls) {
+      const mismatches = [];
+      for (const sb of result.balls) {
+        const rb = repBalls.find(b => b.id === sb.id);
+        if (rb && !!sb.out !== !!rb.out) {
+          mismatches.push(`ball${sb.id}: server.out=${sb.out} client.out=${rb.out}`);
+        }
+      }
+      if (mismatches.length > 0) {
+        console.warn(`[SHOT MISMATCH] ${label} | ${mismatches.join(', ')}`);
+      }
+    }
+  } catch (e) {
+    console.error(`[shot-validate] error — gameId: ${room.gameId ?? '?'}:`, e.message);
+  }
+}
+
 function _resolveGameover(gameId, room, winnerNum, originalMsg) {
+  console.log(`[settle] gameId: ${gameId} | winner: P${winnerNum}`);
   if (_settling.has(String(gameId))) return; // guard double-resolve
 
   const winnerAddr = winnerNum === 1 ? room.p1addr : room.p2addr;
@@ -1161,6 +1214,21 @@ wss.on("connection", (ws, req) => {
     else if (msg.type === "shoot") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
+
+      // Guardar input del tiro + snapshot de bolas PRE-tiro.
+      // Se sobreescribe en cada tiro nuevo (no acumula).
+      room.lastShotInput = {
+        angle:         msg.angle,
+        power:         msg.power,
+        spinX:         msg.spinX  ?? 0,
+        spinY:         msg.spinY  ?? 0,
+        ballsSnapshot: room.gameState?.balls
+                       ? JSON.parse(JSON.stringify(room.gameState.balls))
+                       : null,
+        timestamp:     Date.now(),
+        playerNum:     ws._playerNum
+      };
+
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
       _send(other, { type: "shoot" });
       _sendSpectators(ws._gameId, { type: "shoot" });
@@ -1315,7 +1383,17 @@ wss.on("connection", (ws, req) => {
           if (!r || _settling.has(String(ws._gameId))) return;
           if (r.gameoverVotes && Object.keys(r.gameoverVotes).length === 1) {
             console.warn(`[gameover] timeout — only P${reportingPlayer} voted in ${ws._gameId}, settling with their report`);
-            _resolveGameover(ws._gameId, r, claimedWinnerNum, msg);
+            const serverWinner = serverDetermineWinner(r.gameState);
+            if (serverWinner === null) {
+              console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${claimedWinnerNum}`);
+              console.warn(`[gameover] gameState snapshot:`, JSON.stringify(r.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
+              return;
+            }
+            if (serverWinner !== claimedWinnerNum) {
+              console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${claimedWinnerNum} | server says: ${serverWinner}`);
+            }
+            serverValidateLastShot(r);
+            _resolveGameover(ws._gameId, r, serverWinner, msg);
           }
         }, 10000);
         return;
@@ -1330,7 +1408,17 @@ wss.on("connection", (ws, req) => {
       if (votes[1] === votes[2]) {
         // Consensus reached
         console.log(`[gameover] consensus: both players agree winner=P${votes[1]} in game ${ws._gameId}`);
-        _resolveGameover(ws._gameId, room, votes[1], msg);
+        const serverWinner = serverDetermineWinner(room.gameState);
+        if (serverWinner === null) {
+          console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${votes[1]}`);
+          console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
+          return;
+        }
+        if (serverWinner !== votes[1]) {
+          console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${votes[1]} | server says: ${serverWinner}`);
+        }
+        serverValidateLastShot(room);
+        _resolveGameover(ws._gameId, room, serverWinner, msg);
       } else {
         // Dispute — log and settle with second reporter's claim after short delay
         console.warn(`[gameover] DISPUTE in game ${ws._gameId}: P1 says P${votes[1]} won, P2 says P${votes[2]} won`);
@@ -1347,7 +1435,17 @@ wss.on("connection", (ws, req) => {
           console.warn(`[gameover] both claiming victory — defaulting to second reporter P${reportingPlayer}'s claim`);
         }
         console.log(`[gameover] dispute resolved: winner=P${trustedWinnerNum} in game ${ws._gameId}`);
-        _resolveGameover(ws._gameId, room, trustedWinnerNum, msg);
+        const serverWinner = serverDetermineWinner(room.gameState);
+        if (serverWinner === null) {
+          console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${trustedWinnerNum}`);
+          console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
+          return;
+        }
+        if (serverWinner !== trustedWinnerNum) {
+          console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${trustedWinnerNum} | server says: ${serverWinner}`);
+        }
+        serverValidateLastShot(room);
+        _resolveGameover(ws._gameId, room, serverWinner, msg);
       }
     }
 

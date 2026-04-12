@@ -472,305 +472,47 @@ function initState() {
   if (typeof window._wsOnInit === "function") window._wsOnInit();
 }
 
-function resolveCollisions() {
-  for (let i = 0; i < balls.length; i++)
-    for (let j = i + 1; j < balls.length; j++) {
-      const a = balls[i],
-        b = balls[j];
-      if (a.out || b.out) continue;
-      if (ballInHand && (a === cue || b === cue)) continue; // ignorar colisiones de blanca en BIH
-      const dx = b.x - a.x,
-        dy = b.y - a.y,
-        d = Math.sqrt(dx * dx + dy * dy),
-        mn = R * 2;
-      if (d < mn && d > 0.001) {
-        if (firstContactId === null && (a.id === 0 || b.id === 0))
-          firstContactId = a.id === 0 ? b.id : a.id;
-        const nx = dx / d,
-          ny = dy / d,
-          ov = (mn - d) / 2;
-        a.x -= nx * ov;
-        a.y -= ny * ov;
-        b.x += nx * ov;
-        b.y += ny * ov;
-        const dv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-        if (dv > 0) {
-          const impulse = dv > 0.01
-            ? Math.max(dv, ov * 0.5, 0.02)
-            : Math.max(dv, ov * 0.5);
-          a.vx -= impulse * nx;
-          a.vy -= impulse * ny;
-          b.vx += impulse * nx;
-          b.vy += impulse * ny;
-          // Collision sound based on impact speed
-          const impactSpd = Math.abs(dv);
-          if (impactSpd > 0.8) {
-            const _cs = Math.min(1, impactSpd / MAXP);
-            playCollision(_cs);
-            if (
-              typeof gameMode !== "undefined" &&
-              gameMode === "multiplayer" &&
-              typeof _wsSend === "function" &&
-              currentGameId
-            ) {
-              const _n = Date.now();
-              if (_n - _lastSoundWs > 80) {
-                _lastSoundWs = _n;
-                _wsSend({
-                  type: "sound",
-                  gameId: currentGameId,
-                  sound: "collision",
-                  param: _cs,
-                });
-              }
-            }
-          }
-          spawnHitParticles((a.x + b.x) / 2, (a.y + b.y) / 2);
-        }
-        // Apply spin to cue ball on first collision (topspin/draw affects post-collision direction)
-        const isCue = a.id === 0 || b.id === 0;
-        const cueBall = a.id === 0 ? a : b.id === 0 ? b : null;
-        if (cueBall && !cueBall.spun) {
-          const spd = Math.sqrt(
-            cueBall.vx * cueBall.vx + cueBall.vy * cueBall.vy,
-          );
-          // Follow (top spin): adds momentum along direction of travel
-          // Draw (back spin): reverses some of the forward momentum
-          cueBall.vx +=
-            Math.cos(angle) * cueBall.spinY * cueBall.shotSpd * 0.22;
-          cueBall.vy +=
-            Math.sin(angle) * cueBall.spinY * cueBall.shotSpd * 0.22;
-          // English (side spin) applied immediately at collision
-          cueBall.vx +=
-            Math.cos(angle + Math.PI / 2) *
-            cueBall.spinX *
-            cueBall.shotSpd *
-            0.16;
-          cueBall.vy +=
-            Math.sin(angle + Math.PI / 2) *
-            cueBall.spinX *
-            cueBall.shotSpd *
-            0.16;
-          cueBall.spun = true;
-        }
-      }
-    }
-}
-
+// phys() — wrapper que delega en _phys() de physics.js pasando
+// las variables globales como parámetros y los callbacks de browser.
 function phys(frameDelta) {
-  const dt = frameDelta / 16.667;
-  const fricFrame = Math.pow(FRIC_BASE, dt);
-  const cueSpeed = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
-  const minSubsteps = Math.max(6, Math.ceil(dt / 4));
-  const substeps = Math.max(minSubsteps, Math.min(16, Math.ceil(cueSpeed * dt / (R * 0.5))));
-  let mv = false;
-  // CCD para bola blanca
-  if (cue && !cue.out) {
-    const speed = Math.sqrt(cue.vx * cue.vx + cue.vy * cue.vy);
-    if (speed > R) {
-      const nx0 = cue.vx / speed,
-        ny0 = cue.vy / speed;
-      for (const o of balls) {
-        if (o === cue || o.out) continue;
-        const bx = o.x - cue.x,
-          by = o.y - cue.y;
-        const tCA = bx * nx0 + by * ny0;
-        if (tCA < 0 || tCA > speed) continue; // fuera del frame actual
-        const perpSq = bx * bx + by * by - tCA * tCA;
-        if (perpSq > R * 2 * (R * 2)) continue;
-        const tC = tCA - Math.sqrt(R * 2 * (R * 2) - perpSq);
-        if (tC > 0 && tC <= speed) {
-          // colisión dentro de este frame — posicionamos exactamente
-          cue.x += nx0 * tC;
-          cue.y += ny0 * tC;
-          const dx = o.x - cue.x,
-            dy = o.y - cue.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          const cnx = dx / d,
-            cny = dy / d;
-          const ov = (R * 2 - d) / 2;
-          cue.x -= cnx * ov;
-          o.x += cnx * ov;
-          cue.y -= cny * ov;
-          o.y += cny * ov;
-          const dv = (cue.vx - o.vx) * cnx + (cue.vy - o.vy) * cny;
-          if (dv > 0) {
-            cue.vx -= dv * cnx;
-            cue.vy -= dv * cny;
-            o.vx += dv * cnx;
-            o.vy += dv * cny;
-          }
-          if (firstContactId === null) firstContactId = o.id;
-          if (!cue.spun) {
-            cue.vx += Math.cos(angle) * cue.spinY * cue.shotSpd * 0.22;
-            cue.vy += Math.sin(angle) * cue.spinY * cue.shotSpd * 0.22;
-            cue.vx += Math.cos(angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-            cue.vy += Math.sin(angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-            cue.spun = true;
-          }
-          cue._ccdDone = true;
-          break;
+  const state = { angle, ballInHand, firstContactId, debugSegments };
+  const result = window._phys(frameDelta, balls, state, {
+    onPocketed: (b, pi) => pocketed(b, pi),
+    onCollision: (spd, x, y) => {
+      const _cs = Math.min(1, spd);
+      playCollision(_cs);
+      spawnHitParticles(x, y);
+      if (
+        typeof gameMode !== "undefined" &&
+        gameMode === "multiplayer" &&
+        typeof _wsSend === "function" &&
+        currentGameId
+      ) {
+        const _n = Date.now();
+        if (_n - _lastSoundWs > 80) {
+          _lastSoundWs = _n;
+          _wsSend({ type: "sound", gameId: currentGameId, sound: "collision", param: _cs });
+        }
+      }
+    },
+    onRailHit: () => {
+      playRailHit();
+      if (
+        typeof gameMode !== "undefined" &&
+        gameMode === "multiplayer" &&
+        typeof _wsSend === "function" &&
+        currentGameId
+      ) {
+        const _n = Date.now();
+        if (_n - _lastSoundWs > 80) {
+          _lastSoundWs = _n;
+          _wsSend({ type: "sound", gameId: currentGameId, sound: "rail" });
         }
       }
     }
-  }
-  for (const b of balls) {
-    if (b.out) continue;
-    if (b.vx * b.vx + b.vy * b.vy > MINS * MINS) {
-      mv = true;
-      const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-      if (b === cue && b._ccdDone) {
-        b._ccdDone = false;
-      } else {
-        const _hitCorners = new Set();
-        for (let step = 0; step < substeps; step++) {
-          b.x += b.vx * dt / substeps;
-          b.y += b.vy * dt / substeps;
-
-          // ── BANDAS ──
-          const midGap = 31; // apertura tronera central top/bottom
-          const cornerGap = 31; // zona de esquina sin banda
-
-          const nearTL = b.x < WL + cornerGap && b.y < WT + cornerGap;
-          const nearTR = b.x > WR - cornerGap && b.y < WT + cornerGap;
-          const nearBL = b.x < WL + cornerGap && b.y > WB - cornerGap;
-          const nearBR = b.x > WR - cornerGap && b.y > WB - cornerGap;
-          const atMidX = b.x > W / 2 - midGap && b.x < W / 2 + midGap;
-
-          let hitRail = false;
-          // Laterales — solo excepto esquinas (sin gap central lateral)
-          if (!nearTL && !nearBL && b.x - R < WL) {
-            b.x = WL + R;
-            b.vx *= -0.82;
-            hitRail = true;
-          }
-          if (!nearTR && !nearBR && b.x + R > WR) {
-            b.x = WR - R;
-            b.vx *= -0.82;
-            hitRail = true;
-          }
-          // Top/bottom — excepto tronera central y esquinas
-          if (!atMidX && !nearTL && !nearTR && b.y - R < WT) {
-            b.y = WT + R;
-            b.vy *= -0.82;
-            hitRail = true;
-          }
-          if (!atMidX && !nearBL && !nearBR && b.y + R > WB) {
-            b.y = WB - R;
-            b.vy *= -0.82;
-            hitRail = true;
-          }
-
-          if (hitRail) {
-            const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-            if (spd > 1.5) {
-              playRailHit();
-              if (
-                typeof gameMode !== "undefined" &&
-                gameMode === "multiplayer" &&
-                typeof _wsSend === "function" &&
-                currentGameId
-              ) {
-                const _n = Date.now();
-                if (_n - _lastSoundWs > 80) {
-                  _lastSoundWs = _n;
-                  _wsSend({ type: "sound", gameId: currentGameId, sound: "rail" });
-                }
-              }
-            }
-          }
-
-          // Deflexión en bocas de todas las troneras
-          for (let ci = 0; ci < corners.length; ci++) {
-            if (_hitCorners.has(ci)) continue;
-            const c = corners[ci];
-            // Detección normal (posición actual)
-            const dx = b.x - c.cx,
-              dy = b.y - c.cy,
-              dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < R + 2 && dist > 0.01) {
-              const nx = dx / dist,
-                ny = dy / dist;
-              b.x += nx * (R + 2 - dist);
-              b.y += ny * (R + 2 - dist);
-              const dot = b.vx * nx + b.vy * ny;
-              if (dot < 0) {
-                b.vx -= 2 * dot * nx;
-                b.vy -= 2 * dot * ny;
-                b.vx *= 0.72;
-                b.vy *= 0.72;
-              }
-              _hitCorners.add(ci);
-            } else {
-              // Detección de tunneling: comprobar si la trayectoria pasó por el punto
-              const prevX = b.x - b.vx / substeps;
-              const prevY = b.y - b.vy / substeps;
-              const pdx = prevX - c.cx,
-                pdy = prevY - c.cy,
-                prevDist = Math.sqrt(pdx * pdx + pdy * pdy);
-              if (prevDist < R + 2) {
-                const nx = pdx / prevDist,
-                  ny = pdy / prevDist;
-                b.x = c.cx + nx * (R + 2);
-                b.y = c.cy + ny * (R + 2);
-                const dot = b.vx * nx + b.vy * ny;
-                if (dot < 0) {
-                  b.vx -= 2 * dot * nx;
-                  b.vy -= 2 * dot * ny;
-                  b.vx *= 0.72;
-                  b.vy *= 0.72;
-                }
-                _hitCorners.add(ci);
-              }
-            }
-          }
-          for (const s of debugSegments)
-            ballSegmentCollision(b, s[0], s[1], s[2], s[3]);
-        } // end SUBSTEPS
-      }
-      b.vx *= fricFrame;
-      b.vy *= fricFrame;
-      b.totalRotation = b.totalRotation + spd * 0.075;
-      if (b.id === 0) {
-        const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-        if (spd > 0.1) {
-          b.wbFrame = (b.wbFrame + spd * 1.0 + WHITE_SPRITE_FRAMES) % WHITE_SPRITE_FRAMES;
-        }
-      }
-      if (b.vx * b.vx + b.vy * b.vy < MINS * MINS) {
-        b.vx = 0;
-        b.vy = 0;
-      }
-      // Update visual rotation direction AFTER all velocity reflections are applied
-      {
-        const curSpd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-        if (curSpd > 0.3) {
-          const tgt = Math.atan2(b.vy, b.vx);
-          let diff = tgt - b.visualAngle;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          b.visualAngle += diff * 0.3;
-        }
-      }
-    }
-  }
-  resolveCollisions();
-  resolveCollisions();
-  resolveCollisions();
-  for (const b of balls) {
-    if (b.out) continue;
-    for (let pi = 0; pi < PKT.length; pi++) {
-      const p = PKT[pi];
-      if (Math.sqrt((b.x - p.x) ** 2 + (b.y - p.y) ** 2) < p.r) {
-        b.out = true;
-        b.vx = 0;
-        b.vy = 0;
-        pocketed(b, pi);
-        break;
-      }
-    }
-  }
-  return mv;
+  });
+  firstContactId = state.firstContactId;
+  return result;
 }
 
 function pocketed(b, pi) {
@@ -1736,35 +1478,6 @@ function drawCue() {
     ox.drawImage(cueCanvas, -imgW / 2, pull + ballR, imgW, imgH);
     ox.restore();
   }
-}
-
-function ballSegmentCollision(b, x1, y1, x2, y2) {
-  const dx = x2 - x1,
-    dy = y2 - y1;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return false;
-  let t = ((b.x - x1) * dx + (b.y - y1) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = x1 + t * dx,
-    cy = y1 + t * dy;
-  const ex = b.x - cx,
-    ey = b.y - cy;
-  const dist = Math.sqrt(ex * ex + ey * ey);
-  if (dist < R && dist > 0.01) {
-    const nx = ex / dist,
-      ny = ey / dist;
-    b.x = cx + nx * (R + 0.5);
-    b.y = cy + ny * (R + 0.5);
-    const dot = b.vx * nx + b.vy * ny;
-    if (dot < 0) {
-      b.vx -= 2 * dot * nx;
-      b.vy -= 2 * dot * ny;
-      b.vx *= 0.78;
-      b.vy *= 0.78;
-    }
-    return true;
-  }
-  return false;
 }
 
 let _lastLoopTime = 0;
