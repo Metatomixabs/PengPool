@@ -187,32 +187,58 @@ function serverDetermineWinner(gameState) {
 }
 
 function serverValidateLastShot(room) {
-  const shot = room.lastShotInput;
-  if (!shot || !shot.ballsSnapshot) return;
-  try {
-    const result = simulateShot(shot.ballsSnapshot, shot.angle, shot.power, shot.spinX, shot.spinY);
-    const label = `[shot-validate] gameId: ${room.gameId ?? '?'} | P${shot.playerNum}`;
-    if (result.timedOut) {
-      console.warn(`${label} | simulation timed out after ${result.steps} steps`);
-    } else {
-      console.log(`${label} | OK — steps: ${result.steps}`);
+  // Primero verificar si el gameState ya refleja el 8 embocado
+  // Esto cubre el caso donde result{} llega antes que gameover
+  if (room.gameState?.balls) {
+    const eightInState = room.gameState.balls.find(b => b.id === 8);
+    if (eightInState?.out === true) {
+      console.log('[validate] 8-ball confirmed out in gameState — valid');
+      return { valid: true, reason: 'eight_in_gamestate' };
     }
-    const repBalls = room.gameState?.balls;
-    if (repBalls) {
-      const mismatches = [];
-      for (const sb of result.balls) {
-        const rb = repBalls.find(b => b.id === sb.id);
-        if (rb && !!sb.out !== !!rb.out) {
-          mismatches.push(`ball${sb.id}: server.out=${sb.out} client.out=${rb.out}`);
-        }
-      }
-      if (mismatches.length > 0) {
-        console.warn(`[SHOT MISMATCH] ${label} | ${mismatches.join(', ')}`);
-      }
-    }
-  } catch (e) {
-    console.error(`[shot-validate] error — gameId: ${room.gameId ?? '?'}:`, e.message);
   }
+
+  // Si gameState no lo confirma, intentar con simulación
+  if (!room.lastShotInput) {
+    console.warn('[validate] no lastShotInput and 8-ball not in gameState — rejecting');
+    return { valid: false, reason: 'no_data' };
+  }
+
+  const { angle, power, spinX, spinY, ballsSnapshot } = room.lastShotInput;
+
+  if (!ballsSnapshot || ballsSnapshot.length === 0) {
+    console.warn('[validate] no ballsSnapshot — rejecting');
+    return { valid: false, reason: 'no_snapshot' };
+  }
+
+  let simResult;
+  try {
+    simResult = simulateShot(ballsSnapshot, angle, power, spinX ?? 0, spinY ?? 0);
+  } catch (err) {
+    console.error('[validate] simulateShot threw:', err.message);
+    return { valid: true, reason: 'sim_error' };
+  }
+
+  if (simResult.timedOut) {
+    console.warn('[validate] simulation timed out — accepting');
+    return { valid: true, reason: 'sim_timeout' };
+  }
+
+  const eightBall = simResult.balls.find(b => b.id === 8);
+  const cueBall   = simResult.balls.find(b => b.id === 0);
+  const eightOut  = eightBall?.out === true;
+  const cueOut    = cueBall?.out   === true;
+
+  if (!eightOut) {
+    console.warn('[validate] 8-ball not pocketed in simulation — rejecting');
+  }
+
+  return {
+    valid: eightOut,
+    eightOut,
+    cueOut,
+    steps: simResult.steps,
+    reason: eightOut ? 'eight_pocketed_sim' : 'eight_not_pocketed'
+  };
 }
 
 function _resolveGameover(gameId, room, winnerNum, originalMsg) {
