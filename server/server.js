@@ -13,7 +13,8 @@
 
 "use strict";
 
-require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
+const path      = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 const tournament = require("./tournament");
 
@@ -22,7 +23,7 @@ const WebSocket = require("ws");
 const { ethers } = require("ethers");
 const crypto    = require("crypto");
 const db        = require("./db");
-const { simulateShot } = require(require("path").join(__dirname, "../js/physics.js"));
+const { simulateShot } = require(path.join(__dirname, "js/physics.js"));
 
 
 const PORT = process.env.PORT || 8080;
