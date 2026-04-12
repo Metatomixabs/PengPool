@@ -167,22 +167,34 @@ function _broadcastRoom(room, obj) {
 // Determines the winner from the last authoritative game state snapshot.
 // FUTURE HOOK: when the server simulates its own physics, replace room.gameState
 // with server-computed state here. The call sites and interface stay unchanged.
-function serverDetermineWinner(gameState) {
+function serverDetermineWinner(gameState, claimedWinnerNum, reason) {
   if (!gameState || !gameState.balls) return null;
 
-  const balls    = gameState.balls;
+  const balls     = gameState.balls;
   const eightBall = balls.find(b => b.id === 8);
   const cueBall   = balls.find(b => b.id === 0);
 
   // If the 8-ball is not pocketed, the gameover is invalid
   if (!eightBall || !eightBall.out) return null;
 
-  // Cue ball scratch after potting 8 → opponent of current turn wins
+  // Scratch on the 8 — server can verify via cueBall.out
   if (cueBall && cueBall.out) {
     return gameState.cur === 1 ? 2 : 1;
   }
 
-  // Current turn player potted the 8 cleanly → they win
+  // Cases the server cannot verify with physics alone (pocket rule, early 8):
+  // trust claimedWinnerNum from the client
+  const clientReason = (reason || '').toLowerCase();
+  const isSpecialCase =
+    clientReason.includes('too early') ||
+    clientReason.includes('wrong pocket');
+
+  if (isSpecialCase) {
+    console.log(`[validate] special case "${reason}" — trusting client winnerNum: ${claimedWinnerNum}`);
+    return claimedWinnerNum ?? null;
+  }
+
+  // Clean 8-ball pot — shooter wins
   return gameState.cur === 1 ? 1 : 2;
 }
 
@@ -1410,7 +1422,7 @@ wss.on("connection", (ws, req) => {
           if (!r || _settling.has(String(ws._gameId))) return;
           if (r.gameoverVotes && Object.keys(r.gameoverVotes).length === 1) {
             console.warn(`[gameover] timeout — only P${reportingPlayer} voted in ${ws._gameId}, settling with their report`);
-            const serverWinner = serverDetermineWinner(r.gameState);
+            const serverWinner = serverDetermineWinner(r.gameState, claimedWinnerNum, msg.reason);
             if (serverWinner === null) {
               console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${claimedWinnerNum}`);
               console.warn(`[gameover] gameState snapshot:`, JSON.stringify(r.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
@@ -1435,7 +1447,7 @@ wss.on("connection", (ws, req) => {
       if (votes[1] === votes[2]) {
         // Consensus reached
         console.log(`[gameover] consensus: both players agree winner=P${votes[1]} in game ${ws._gameId}`);
-        const serverWinner = serverDetermineWinner(room.gameState);
+        const serverWinner = serverDetermineWinner(room.gameState, votes[1], msg.reason);
         if (serverWinner === null) {
           console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${votes[1]}`);
           console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
@@ -1462,7 +1474,7 @@ wss.on("connection", (ws, req) => {
           console.warn(`[gameover] both claiming victory — defaulting to second reporter P${reportingPlayer}'s claim`);
         }
         console.log(`[gameover] dispute resolved: winner=P${trustedWinnerNum} in game ${ws._gameId}`);
-        const serverWinner = serverDetermineWinner(room.gameState);
+        const serverWinner = serverDetermineWinner(room.gameState, trustedWinnerNum, msg.reason);
         if (serverWinner === null) {
           console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${trustedWinnerNum}`);
           console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
