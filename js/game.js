@@ -477,7 +477,7 @@ function initState() {
 function phys(frameDelta) {
   const state = { angle, ballInHand, firstContactId, debugSegments };
   const result = window._phys(frameDelta, balls, state, {
-    onPocketed: (b, pi) => pocketed(b, pi),
+    onPocketed: (b, pi) => { b.out = true; pocketed(b, pi); },
     onCollision: (spd, x, y) => {
       const _cs = Math.min(1, spd);
       playCollision(_cs);

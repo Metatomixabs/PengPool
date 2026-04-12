@@ -274,7 +274,7 @@ function _phys(frameDelta, balls, state, callbacks) {
     for (let pi = 0; pi < _PKT.length; pi++) {
       const p = _PKT[pi];
       if (Math.sqrt((b.x - p.x) ** 2 + (b.y - p.y) ** 2) < p.r) {
-        b.vx = 0; b.vy = 0;
+        b.vx = 0; b.vy = 0; b.out = true;
         onPocketed(b, pi);
         break;
       }
