@@ -658,7 +658,7 @@ function applyRemoteShoot() {
 
 function shotEnd() {
   if (!running) return;
-  const shooterNum = cur; // capture before any switchTurn() mutates cur
+  const shooterNum = myPlayerNum; // shotEnd() only runs for the local shooter (_myLastShot guard below)
   // Opponent's shot: physics runs only on their machine — just wait for result message
   if (
     typeof gameMode !== "undefined" &&
