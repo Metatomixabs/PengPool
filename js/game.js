@@ -516,6 +516,7 @@ function phys(frameDelta) {
 }
 
 function pocketed(b, pi) {
+  b.out = true;
   anyP = true;
   playPocket();
   if (
