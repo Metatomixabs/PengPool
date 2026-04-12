@@ -1156,6 +1156,14 @@ window._wsOnShoot = function(angle, pwr, spinX, spinY) {
   });
 };
 
+// Hook called by game.js at gameover to send final state without _wsOnResult side effects
+// (no resetTurnTimer, no isMyLastShot guard — just sends the snapshot so server has 8-ball state)
+window._wsOnGameoverResult = function(data) {
+  if (gameMode === 'multiplayer' && running) {
+    _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
+  }
+};
+
 // Hook called by game.js when balls stop moving (authoritative final state)
 window._wsOnResult = function(data) {
   if (gameMode === 'multiplayer') {

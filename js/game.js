@@ -762,9 +762,7 @@ function shotEnd() {
     const myTargetPocket = cur === 1 ? p1EightPocket : p2EightPocket;
 
     // Send final ball state (8-ball out=true) before gameover so server has it
-    if (typeof gameMode !== "undefined" && gameMode === "multiplayer" && running) {
-      if (typeof window._wsOnResult === "function") window._wsOnResult(_gatherResult());
-    }
+    if (typeof window._wsOnGameoverResult === "function") window._wsOnGameoverResult(_gatherResult());
 
     if (cueP) {
       endGame(opp, "Scratch on the 8-ball!");
