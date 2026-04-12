@@ -23,7 +23,7 @@ const WebSocket = require("ws");
 const { ethers } = require("ethers");
 const crypto    = require("crypto");
 const db        = require("./db");
-const { simulateShot } = require(path.join(__dirname, "../js/physics.js"));
+const { simulateShot } = require('../js/physics.js');
 
 
 const PORT = process.env.PORT || 8080;
