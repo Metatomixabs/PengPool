@@ -97,7 +97,7 @@ const SPRITE_COLS = 12,
 const WHITE_SPRITE_COLS = 12;
 const WHITE_SPRITE_ROWS = 10;
 const WHITE_SPRITE_FRAMES = 120;
-const WB_CROP = { x: 571, y: 151, w: 777, h: 777 };
+const WB_CROP = { x: 0, y: 0, w: 64, h: 64 };
 
 // ── Ball render cache ─────────────────────────────────────────────────────────
 // _ballOverlayCanvas: shading, specular and rim pre-baked once at startup.
@@ -145,7 +145,7 @@ const _ballOverlayCanvas = (function () {
 
 let whiteBallSprite = null;
 const wbImg = new Image();
-wbImg.src = 'assets/balls_sprites/spritesheet3.png';
+wbImg.src = 'assets/balls_sprites/spritesheet3_opt.webp';
 wbImg.onload = () => { whiteBallSprite = wbImg; };
 
 // _spriteDims: cached {fw, fh} per ball id — avoids dividing sprite dimensions every frame.
