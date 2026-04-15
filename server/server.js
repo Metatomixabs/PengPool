@@ -23,7 +23,7 @@ const WebSocket = require("ws");
 const { ethers } = require("ethers");
 const crypto    = require("crypto");
 const db        = require("./db");
-const { simulateShot } = require('./physics.js');
+const { simulateShot, sanitizeSnapshot, validateShotParams } = require('./physics.js');
 
 
 const PORT = process.env.PORT || 8080;
@@ -251,6 +251,169 @@ function serverValidateLastShot(room) {
     steps: simResult.steps,
     reason: eightOut ? 'eight_pocketed_sim' : 'eight_not_pocketed'
   };
+}
+
+function makeInitialBalls() {
+  const H   = 500;
+  const R   = 11;
+  const S   = Math.sin(Math.PI / 3);
+  const spx = Math.sqrt(3) * R * 1.05;
+  const spy = R / S;
+  const rx  = 525, ry = H / 2;
+  const RACK = [1, 9, 10, 2, 8, 3, 11, 4, 12, 13, 5, 14, 6, 15, 7];
+  const pos  = [
+    [0,  0    ], [1, -S    ], [1,  S    ],
+    [2, -2*S  ], [2,  0    ], [2,  2*S  ],
+    [3, -3*S  ], [3, -S    ], [3,  S    ], [3,  3*S  ],
+    [4, -4*S  ], [4, -2*S  ], [4,  0    ], [4,  2*S  ], [4,  4*S  ],
+  ];
+  const balls = [];
+  balls.push({ id: 0, x: 223, y: ry, vx: 0, vy: 0, out: false });
+  for (let i = 0; i < 15; i++) {
+    const id = RACK[i];
+    const [px, py] = pos[i];
+    balls.push({ id, x: rx + px * spx, y: ry + py * spy, vx: 0, vy: 0, out: false });
+  }
+  return balls;
+}
+
+// ── computeGameLogic ──────────────────────────────────────────────────────────
+// Derives the new game-state fields (turn, types, bonuses, ball-in-hand) from
+// the simulation result.  Replicates the pocketed() callback + shotEnd() logic
+// that lives in game.js, so the server is fully authoritative on game rules.
+//
+// prevState    : room.gameState before this shot (null on first shot)
+// preShotBalls : sanitized snapshot used for simulation
+// simResult    : return value of simulateShot()
+// isBreakShot  : true only on the very first shot of the game
+function computeGameLogic(prevState, preShotBalls, simResult, isBreakShot) {
+  const newBalls       = simResult.balls;
+  const pocketedInfo   = simResult.pocketedInfo || {};
+  const firstContactId = simResult.firstContactId;
+
+  // Pull previous state (or defaults for the first shot)
+  let cur           = prevState?.cur    ?? 1;
+  let typed         = prevState?.typed  ?? false;
+  let p1T           = prevState?.p1T    ?? null;
+  let p2T           = prevState?.p2T    ?? null;
+  let p1t           = (prevState?.p1t   ?? []).slice();
+  let p2t           = (prevState?.p2t   ?? []).slice();
+  let bonusShots    = prevState?.bonusShots ?? 0;
+  let ballInHand    = false;
+  let p1EightPocket = prevState?.p1EightPocket ?? null;
+  let p2EightPocket = prevState?.p2EightPocket ?? null;
+
+  // ── Detect newly pocketed balls ───────────────────────────────────────────
+  const preShotMap = {};
+  for (const b of preShotBalls) preShotMap[b.id] = b;
+  const newlyPocketed = newBalls.filter(b => b.out && !preShotMap[b.id]?.out);
+  const cuePocketed   = newlyPocketed.some(b => b.id === 0);
+  const eightPocketed = newlyPocketed.some(b => b.id === 8);
+  const otherPocketed = newlyPocketed.filter(b => b.id !== 0 && b.id !== 8);
+
+  // ── Process object balls — replicates pocketed() in game.js ──────────────
+  let anyP         = false;
+  let foulThisTurn = false;
+
+  for (const b of otherPocketed) {
+    anyP = true;
+
+    // Assign ball types on the first pocketed object ball
+    if (!typed) {
+      typed = true;
+      const sol = b.id <= 7;
+      p1T = cur === 1 ? (sol ? 'solid' : 'stripe') : (sol ? 'stripe' : 'solid');
+      p2T = p1T === 'solid' ? 'stripe' : 'solid';
+    }
+
+    const sol  = b.id <= 7;
+    const mine = (cur === 1 && ((p1T === 'solid' && sol) || (p1T === 'stripe' && !sol))) ||
+                 (cur === 2 && ((p2T === 'solid' && sol) || (p2T === 'stripe' && !sol)));
+
+    if (mine) {
+      (cur === 1 ? p1t : p2t).push(b.id);
+    } else if (!isBreakShot) {
+      // Wrong ball pocketed (not on break shot) → foul
+      foulThisTurn = true;
+      if (typed) {
+        const other    = cur === 1 ? 2 : 1;
+        const otherT   = other === 1 ? p1T : p2T;
+        const otherGrp = otherT === 'solid' ? [1,2,3,4,5,6,7] : [9,10,11,12,13,14,15];
+        if (otherGrp.includes(b.id)) {
+          (other === 1 ? p1t : p2t).push(b.id);
+        }
+      }
+    }
+  }
+
+  // ── p1/p2 EightPocket — record pocket when player clears their last ball ──
+  if (typed && p1T && p2T) {
+    const myGroup       = cur === 1
+      ? (p1T === 'solid' ? [1,2,3,4,5,6,7] : [9,10,11,12,13,14,15])
+      : (p2T === 'solid' ? [1,2,3,4,5,6,7] : [9,10,11,12,13,14,15]);
+    const remainBefore  = preShotBalls.filter(pb => !pb.out && myGroup.includes(pb.id));
+    const remainAfter   = newBalls.filter(nb  => !nb.out  && myGroup.includes(nb.id));
+    if (remainBefore.length > 0 && remainAfter.length === 0) {
+      const lastOwn = otherPocketed.find(b => {
+        const sol = b.id <= 7;
+        return (cur === 1 && ((p1T === 'solid' && sol) || (p1T === 'stripe' && !sol))) ||
+               (cur === 2 && ((p2T === 'solid' && sol) || (p2T === 'stripe' && !sol)));
+      });
+      if (lastOwn != null && pocketedInfo[lastOwn.id] != null) {
+        if (cur === 1) p1EightPocket = pocketedInfo[lastOwn.id];
+        else           p2EightPocket = pocketedInfo[lastOwn.id];
+      }
+    }
+  }
+
+  // ── First-contact foul — replicates shotEnd() check in game.js ───────────
+  if (!cuePocketed && !foulThisTurn) {
+    if (firstContactId === null) {
+      foulThisTurn = true;
+    } else if (typed && p1T && p2T) {
+      const myType      = cur === 1 ? p1T : p2T;
+      const myGroup     = myType === 'solid' ? [1,2,3,4,5,6,7] : [9,10,11,12,13,14,15];
+      const preShotOwn  = preShotBalls.filter(pb => !pb.out && myGroup.includes(pb.id));
+      if (preShotOwn.length === 0) {
+        if (firstContactId !== 8) foulThisTurn = true;
+      } else {
+        const fcSolid  = firstContactId >= 1 && firstContactId <= 7;
+        const fcStripe = firstContactId >= 9 && firstContactId <= 15;
+        const fcMine   = (myType === 'solid' && fcSolid) || (myType === 'stripe' && fcStripe);
+        const myBallsAfter        = newBalls.filter(nb => !nb.out && myGroup.includes(nb.id));
+        const clearedGroupThisTurn = myBallsAfter.length === 0;
+        if (!fcMine && !(clearedGroupThisTurn && firstContactId === 8)) foulThisTurn = true;
+      }
+    } else {
+      if (firstContactId === 8) foulThisTurn = true;
+    }
+  }
+
+  // ── Bonus-shot tracking ───────────────────────────────────────────────────
+  const hadBonus = bonusShots > 0;
+  if (hadBonus) bonusShots--;
+
+  // ── Turn result — replicates the turn-switching block in shotEnd() ────────
+  if (cuePocketed) {
+    if (!eightPocketed) bonusShots = 2;
+    ballInHand = true;
+    cur = cur === 1 ? 2 : 1;
+    const cueBall = newBalls.find(b => b.id === 0);
+    if (cueBall) { cueBall.out = false; cueBall.x = 223; cueBall.y = 250; cueBall.vx = 0; cueBall.vy = 0; }
+  } else if (foulThisTurn) {
+    bonusShots = 2;
+    cur = cur === 1 ? 2 : 1;
+  } else if (hadBonus && bonusShots > 0) {
+    // Keep turn — consumed one bonus, still more remaining
+  } else if (anyP) {
+    bonusShots = 0;
+    // Keep turn — pocketed a legal ball
+  } else {
+    bonusShots = 0;
+    cur = cur === 1 ? 2 : 1;
+  }
+
+  return { cur, typed, p1T, p2T, p1t, p2t, bonusShots, ballInHand, p1EightPocket, p2EightPocket };
 }
 
 function _resolveGameover(gameId, room, winnerNum, originalMsg) {
@@ -1249,48 +1412,103 @@ wss.on("connection", (ws, req) => {
       _send(other, msg);
     }
 
-    // ── shoot  (relay shot to opponent) ───────────────────────────────────
+    // ── shoot  (validate → simulate → compute game logic → broadcast) ────
     else if (msg.type === "shoot") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
 
-      // Guardar input del tiro + snapshot de bolas PRE-tiro.
-      // Se sobreescribe en cada tiro nuevo (no acumula).
-      room.lastShotInput = {
-        angle:         msg.angle,
-        power:         msg.power,
-        spinX:         msg.spinX  ?? 0,
-        spinY:         msg.spinY  ?? 0,
-        ballsSnapshot: room.gameState?.balls
-                       ? JSON.parse(JSON.stringify(room.gameState.balls))
-                       : null,
-        timestamp:     Date.now(),
-        playerNum:     ws._playerNum
+      const angle = msg.angle;
+      const power = msg.power;
+      const spinX = msg.spinX ?? 0;
+      const spinY = msg.spinY ?? 0;
+
+      // ── Validate shot parameters ─────────────────────────────────────────
+      if (!validateShotParams(angle, power, spinX, spinY)) {
+        console.warn(`[INVALID] shoot P${ws._playerNum} — angle=${angle} power=${power} spinX=${spinX} spinY=${spinY}`);
+        return;
+      }
+
+      // ── Build pre-shot ball snapshot ─────────────────────────────────────
+      const isBreakShot = !room.gameState?.balls;
+      let preShotBalls;
+      if (room.gameState?.balls) {
+        preShotBalls = sanitizeSnapshot(JSON.parse(JSON.stringify(room.gameState.balls)));
+      } else {
+        preShotBalls = makeInitialBalls();
+      }
+
+      // Apply client's cue-ball position (handles ball-in-hand placement)
+      if (msg.cueBallX != null && msg.cueBallY != null) {
+        const cue = preShotBalls.find(b => b.id === 0);
+        if (cue && !cue.out) { cue.x = msg.cueBallX; cue.y = msg.cueBallY; }
+      }
+
+      // ── Run server-side simulation ────────────────────────────────────────
+      const t0 = Date.now();
+      let simResult;
+      try {
+        simResult = simulateShot(preShotBalls, angle, power, spinX, spinY);
+      } catch (err) {
+        console.error(`[SIM] simulateShot threw for P${ws._playerNum}:`, err.message);
+        // Simulation failed — relay shoot only; client stays in control this shot
+        const other = ws._playerNum === 1 ? room.p2 : room.p1;
+        _send(other, { type: 'shoot' });
+        _sendSpectators(ws._gameId, { type: 'shoot' });
+        return;
+      }
+      const simMs = Date.now() - t0;
+
+      const preShotMap = {};
+      for (const b of preShotBalls) preShotMap[b.id] = b;
+      const newlyOut = simResult.balls.filter(b => b.out && !preShotMap[b.id]?.out);
+      const ids = newlyOut.map(b => b.id).join(',') || 'none';
+      console.log(`[SIM] P${ws._playerNum} ${simMs}ms — steps=${simResult.steps} pocketed=[${ids}] timedOut=${simResult.timedOut}`);
+
+      // ── Compute authoritative game-logic state ────────────────────────────
+      const logic = computeGameLogic(room.gameState, preShotBalls, simResult, isBreakShot);
+
+      // ── Build result message ──────────────────────────────────────────────
+      const resultMsg = {
+        type:          'result',
+        gameId:        ws._gameId,
+        balls:         simResult.balls,
+        frames:        simResult.frames,
+        cur:           logic.cur,
+        typed:         logic.typed,
+        p1T:           logic.p1T,
+        p2T:           logic.p2T,
+        p1t:           logic.p1t,
+        p2t:           logic.p2t,
+        bonusShots:    logic.bonusShots,
+        ballInHand:    logic.ballInHand,
+        p1EightPocket: logic.p1EightPocket,
+        p2EightPocket: logic.p2EightPocket,
       };
 
+      room.lastShotInput = { angle, power, spinX, spinY, timestamp: Date.now(), playerNum: ws._playerNum };
+      room.gameState = resultMsg;
+
+      // Send shoot notification to opponent first so their animation can start
       const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, { type: "shoot" });
-      _sendSpectators(ws._gameId, { type: "shoot" });
+      _send(other, { type: 'shoot' });
+      _sendSpectators(ws._gameId, { type: 'shoot' });
+
+      // Broadcast authoritative result to both players:
+      // — shooter receives echo for position reconciliation
+      // — opponent receives it to apply game logic + start replay
+      _send(ws, resultMsg);
+      _send(other, resultMsg);
+      _sendSpectators(ws._gameId, resultMsg);
     }
 
-    // ── frame  (live ball positions while balls are moving) ───────────────
+    // ── frame  (no-op — server simulation replaces live frame streaming) ──
     else if (msg.type === "frame") {
-      const room = rooms.get(ws._gameId);
-      if (!room) return;
-      const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, msg);
-      _sendSpectators(ws._gameId, msg);
+      // Server is authoritative; trajectory is sent via frames array in result.
     }
 
-    // ── result  (authoritative final ball state after a shot) ─────────────
+    // ── result  (server is authoritative — client result messages ignored) ──
     else if (msg.type === "result") {
-      const room = rooms.get(ws._gameId);
-      if (!room) return;
-      const other = ws._playerNum === 1 ? room.p2 : room.p1;
-      _send(other, msg);
-      // Snapshot latest game state so a reconnecting player can resume
-      room.gameState = msg;
-      _sendSpectators(ws._gameId, msg);
+      console.warn(`[IGNORED] P${ws._playerNum} sent result — server is authoritative. gameId=${ws._gameId}`);
     }
 
     // ── sync_state  (active player's live state, sent in response to request_state) ──

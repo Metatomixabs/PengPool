@@ -653,14 +653,20 @@ function _wsOnMessage(msg) {
     if (G) G.applyFrame(msg.balls);
   }
   else if (msg.type === 'result') {
-    // Authoritative final state from the shooter — apply and update turn
     _oppCueActive = false;
-    console.log('[SYNC] received result from server — cur='+msg.cur+' balls='+(msg.balls&&msg.balls.length));
+    console.log('[SYNC] received result from server — cur='+msg.cur+' frames='+(msg.frames&&msg.frames.length));
     if (!_validateResultState(msg)) {
       console.warn('[cheat] result message failed validation — ignoring');
       return;
     }
-    if (G) G.applyResult(msg); else console.warn('[SYNC] PengPoolGame not ready!');
+    if (!G) { console.warn('[SYNC] PengPoolGame not ready!'); return; }
+    if (msg.frames && msg.frames.length > 0) {
+      // Server-authoritative trajectory — replay frame by frame
+      G.playTrajectory(msg.frames, msg);
+    } else {
+      // No frames (fallback) — apply final state directly
+      G.applyResult(msg);
+    }
   }
   else if (msg.type === 'sound') {
     _resumeAudioCtx();
@@ -1146,44 +1152,27 @@ window._wsOnInit = function() {
 
 // Hook called by game.js after every local shot in multiplayer
 window._wsOnShoot = function(angle, pwr, spinX, spinY) {
-  if (gameMode === 'multiplayer') _wsSend({
-    type: 'shoot',
-    gameId: currentGameId,
-    angle,
-    power: pwr,
-    spinX,
-    spinY
-  });
-};
-
-// Hook called by game.js at gameover to send final state without _wsOnResult side effects
-// (no resetTurnTimer, no isMyLastShot guard — just sends the snapshot so server has 8-ball state)
-window._wsOnGameoverResult = function(data) {
-  if (gameMode === 'multiplayer' && running) {
-    _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
-  }
-};
-
-// Hook called by game.js when balls stop moving (authoritative final state)
-window._wsOnResult = function(data) {
   if (gameMode === 'multiplayer') {
-    // Guard: only the machine that fired the last shot should broadcast the result.
-    // Spurious calls can happen when phys() resolves overlapping balls in applyResult().
-    // NOTE: use window.PengPoolGame directly — G is a local var inside _wsOnMessage, not in scope here.
     const _G = window.PengPoolGame;
-    if (!_G || !_G.isMyLastShot()) {
-      console.warn('[SYNC] _wsOnResult suppressed — not the shooter (_myLastShot=false)');
-      return;
+    const msg = { type: 'shoot', gameId: currentGameId, angle, power: pwr, spinX, spinY };
+    // Include pre-shot cue ball position so server can simulate ball-in-hand placement
+    if (_G) {
+      const bs = _G.getBallsState();
+      const cb = bs && bs.find(b => b.id === 0);
+      if (cb && !cb.out) { msg.cueBallX = cb.x; msg.cueBallY = cb.y; }
     }
-    console.log('[SYNC] _wsOnResult fired — sending to server, cur='+data.cur+' balls='+data.balls.length);
-    _wsSend(Object.assign({ type: 'result', gameId: currentGameId }, data));
-    // If the shooter keeps their turn (pocketed a ball without foul), reset the timer.
-    // This must happen after the result is sent so it doesn't interfere with the sync flow.
-    // resetTurnTimer() will also broadcast timerTick sec:20 so the opponent's display resets too.
-    if (data.cur === myPlayerNum) {
-      resetTurnTimer();
-    }
+    _wsSend(msg);
   }
+};
+
+// Hook called by game.js at gameover — server computed result in shoot handler, nothing to send.
+window._wsOnGameoverResult = function(data) {
+  // Server is authoritative — nothing to send.
+};
+
+// Hook called by game.js when balls stop moving — server is authoritative, nothing to send.
+window._wsOnResult = function(data) {
+  // Server is authoritative — nothing to send.
 };
 
 // Hook called every frame while balls are moving (live animation stream)

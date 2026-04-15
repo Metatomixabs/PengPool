@@ -13,6 +13,23 @@ const _FRIC_BASE = 0.9875;
 const _MINS      = 0.1;
 const _MAXP      = 18;
 
+// ── Input validation & snapshot helpers (for server-side use) ────────────────
+function sanitizeSnapshot(balls) {
+  return balls.map(b => ({
+    ...b,
+    vx: Math.abs(b.vx) < 0.15 ? 0 : b.vx,
+    vy: Math.abs(b.vy) < 0.15 ? 0 : b.vy,
+  }));
+}
+
+function validateShotParams(angle, power, spinX, spinY) {
+  if (typeof angle !== 'number' || !isFinite(angle))            return false;
+  if (typeof power !== 'number' || power < 0.01 || power > 100) return false;
+  if (typeof spinX !== 'number' || spinX < -1   || spinX > 1)   return false;
+  if (typeof spinY !== 'number' || spinY < -1   || spinY > 1)   return false;
+  return true;
+}
+
 const _PKT = [
   { x: 46,         y: 66,       r: 24, type: 'corner' },
   { x: _W / 2.015, y: 55,       r: 24, type: 'mid'    },
@@ -309,31 +326,48 @@ function simulateShot(ballsSnapshot, angleRad, power, spinX, spinY) {
     debugSegments:  []
   };
 
+  const pocketedInfo = {}; // ballId → pocket index
   const callbacks = {
-    onPocketed: (ball) => { ball.out = true; ball.vx = 0; ball.vy = 0; }
+    onPocketed: (ball, pi) => { ball.out = true; ball.vx = 0; ball.vy = 0; pocketedInfo[ball.id] = pi; }
   };
 
-  const DT        = 16;
-  const MAX_STEPS = 10000;
-  let steps       = 0;
-  let stillMoving = true;
+  const DT          = 16;
+  const MAX_STEPS   = 10000;
+  const SAMPLE_RATE = 3; // Record every 3 steps (~48ms)
+  let steps         = 0;
+  let stillMoving   = true;
+
+  const snapshots = [];
+  snapshots.push({
+    balls: balls.map(b => ({ id: b.id, x: b.x, y: b.y, out: b.out })),
+    step: 0
+  });
 
   while (stillMoving && steps < MAX_STEPS) {
     stillMoving = _phys(DT, balls, state, callbacks);
     steps++;
+
+    if (steps % SAMPLE_RATE === 0 || !stillMoving) {
+      snapshots.push({
+        balls: balls.map(b => ({ id: b.id, x: b.x, y: b.y, out: b.out })),
+        step: steps
+      });
+    }
   }
 
   return {
     balls,
+    frames:         snapshots,
     firstContactId: state.firstContactId,
+    pocketedInfo,
     steps,
-    timedOut: steps >= MAX_STEPS
+    timedOut:       steps >= MAX_STEPS
   };
 }
 
 // ── Exporta para Node.js; registra en window para browser ────────────────────
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { simulateShot, _phys, _resolveCollisions };
+  module.exports = { simulateShot, sanitizeSnapshot, validateShotParams, _phys, _resolveCollisions };
 } else if (typeof window !== 'undefined') {
   window._phys = _phys;
 }

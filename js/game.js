@@ -202,9 +202,15 @@ let _pwrDir = 1; // 1 = increasing, -1 = decreasing (oscillating power bar)
 let mouseX = 0,
   mouseY = 0;
 let _myLastShot = true; // true = local shot; false = opponent's shot (no local physics)
-let _remoteTargets = null; // Map<id, {x,y,out}> — interpolation targets set by incoming frames
+let _remoteTargets = null; // kept for compatibility — no longer used in multiplayer path
 let _lastSoundWs = 0; // throttle: timestamp of last sound WS message sent
-const _LERP = 0.65; // lerp factor per frame — higher value converges faster (~10fps source)
+const _LERP = 0.65; // kept for compatibility — no longer used in multiplayer path
+// Trajectory replay state (server-authoritative frames)
+let _isReplaying  = false;
+let _replayIndex  = 0;
+let _replayFrames = [];
+let _replayResult = null;
+let _replayLastMs = 0;
 let firstContactId = null; // id of the first ball the cue touched this shot (null = none yet)
 let _typedAtShotStart = false; // snapshot of `typed` taken when the shot fires — types can be
 // assigned mid-shot (pocketed()), so we must check the PRE-SHOT state
@@ -638,7 +644,7 @@ function shoot() {
     cur !== myPlayerNum
   )
     return;
-  _myLastShot = true;
+  // No local simulation for multiplayer shots — wait for authoritative trajectory from server
   _applyShot(angle, pwr, spinX, spinY);
   // Notify ui.js so it can relay the shot over WebSocket
   if (typeof window._wsOnShoot === "function")
@@ -651,7 +657,6 @@ function shoot() {
 function applyRemoteShoot() {
   if (!running) return;
   _myLastShot = false;
-  _remoteTargets = null; // clear stale targets from previous shot
   document.getElementById("gstatus").textContent =
     "P" + (myPlayerNum === 1 ? 2 : 1) + " — SHOOTING\u2026";
 }
@@ -847,47 +852,10 @@ function _gatherResult() {
 }
 
 function applyResult(data) {
-  // ── Detailed diagnostics (temporary) ─────────────────────────────────────
-  console.group("[SYNC] applyResult — RECEIVED STATE");
-  console.log(
-    "  data.balls count:",
-    data.balls ? data.balls.length : "MISSING",
-  );
-  if (data.balls) {
-    const inPlay = data.balls.filter((b) => !b.out);
-    const pocketed = data.balls.filter((b) => b.out);
-    console.log(
-      "  in-play: " + inPlay.length + ", pocketed: " + pocketed.length,
-    );
-    data.balls.forEach((b) =>
-      console.log(
-        `  ball ${b.id}: x=${b.x != null ? b.x.toFixed(1) : "?"} y=${b.y != null ? b.y.toFixed(1) : "?"} out=${b.out} vx=${b.vx != null ? b.vx.toFixed(3) : "?"}`,
-      ),
-    );
-  }
-  console.log(
-    "  cur=" +
-      data.cur +
-      " typed=" +
-      data.typed +
-      " p1T=" +
-      data.p1T +
-      " p2T=" +
-      data.p2T,
-  );
-  console.log(
-    "  local balls before apply:",
-    balls ? balls.length : "UNINITIALISED",
-  );
-  console.groupEnd();
-  // ─────────────────────────────────────────────────────────────────────────
-  // Fix 2: en lugar de cortar LERP y teletransportar, actualizar _remoteTargets
-  // con el estado final para que la interpolación converja suavemente (~300ms).
-  // Después del timeout se hace el snap exacto y se entrega el turno.
-  if (!_remoteTargets) _remoteTargets = {};
-  data.balls.forEach(bd => {
-    _remoteTargets[bd.id] = { x: bd.x, y: bd.y, out: bd.out };
-  });
+  if (!data) return;
+  console.log('[SYNC] applying server result — cur='+data.cur+' balls='+(data.balls&&data.balls.length));
+
+  // Apply game-logic state
   cur = data.cur;
   typed = data.typed;
   p1T = data.p1T;
@@ -898,29 +866,88 @@ function applyResult(data) {
   ballInHand = !!data.ballInHand;
   p1EightPocket = data.p1EightPocket != null ? data.p1EightPocket : null;
   p2EightPocket = data.p2EightPocket != null ? data.p2EightPocket : null;
+
+  // Sync ball positions immediately (trajectory replay already animated them)
+  applyBallsState(data.balls);
+
+  // Update UI
+  if (typeof renderUI === "function") renderUI();
+  if (typeof _updateBonusUI === "function") _updateBonusUI();
+
   document.getElementById("pr1").className = "pr" + (cur === 1 ? " on" : "");
   document.getElementById("pr2").className = "pr" + (cur === 2 ? " on" : "");
   const myTurn = cur === myPlayerNum;
   document.getElementById("gstatus").textContent =
     "P" + cur + (myTurn ? " \u2014 YOUR TURN" : " \u2014 OPPONENT'S TURN");
-  _updateBonusUI(); // after gstatus — may override with ball-in-hand hint
+
   if (!myTurn) {
     aiming = false;
     charging = false;
   }
   if (typeof window.resetSpin === "function") window.resetSpin();
-  // Refresh all type/pocket-count UI that renderUI() normally handles
-  if (typeof renderUI === "function") renderUI();
-  // Tras 300ms: snap a estado exacto y entregar turno (evita freeze visible)
-  setTimeout(() => {
-    _remoteTargets = null;
-    applyBallsState(data.balls);
+
+  // Resume turn timer
+  if (typeof gameMode !== "undefined" && gameMode === "multiplayer") {
     if (myTurn) {
       if (typeof resetTurnTimer === "function") resetTurnTimer();
     } else {
       if (typeof stopTurnTimer === "function") stopTurnTimer();
     }
-  }, 300);
+  }
+}
+
+// ── Trajectory replay — plays server-sent frame snapshots at 16ms intervals ──
+function playTrajectory(frames, result) {
+  if (!frames || frames.length === 0) {
+    applyResult(result);
+    return;
+  }
+  _replayFrames = frames;
+  _replayResult = result;
+  _replayIndex  = 0;
+  _isReplaying  = true;
+  _replayLastMs = performance.now();
+  moving = true; // block aiming/UI during replay
+  console.log('[TRAJECTORY] Starting replay of ' + frames.length + ' frames');
+}
+
+function _updateTrajectoryReplay() {
+  if (!_isReplaying) return;
+
+  const now = performance.now();
+  const DT  = 16;
+  if (now - _replayLastMs < DT) return;
+  _replayLastMs = now;
+
+  const frame = _replayFrames[_replayIndex];
+  if (frame) {
+    frame.balls.forEach(bd => {
+      const b = balls.find(x => x.id === bd.id);
+      if (b) {
+        // Pocket event detection — trigger sound/particles
+        if (!b.out && bd.out) {
+          let bestP = 0, minDist = 999;
+          for (let i = 0; i < PKT.length; i++) {
+            const d = Math.hypot(b.x - PKT[i].x, b.y - PKT[i].y);
+            if (d < minDist) { minDist = d; bestP = i; }
+          }
+          pocketed(b, bestP);
+        }
+        b.x   = bd.x;
+        b.y   = bd.y;
+        b.out = bd.out;
+      }
+    });
+    _replayIndex++;
+  }
+
+  if (_replayIndex >= _replayFrames.length) {
+    _isReplaying  = false;
+    _replayFrames = [];
+    moving        = false;
+    applyResult(_replayResult);
+    console.log('[TRAJECTORY] Replay finished');
+  }
 }
 
 function switchTurn() {
@@ -1492,64 +1519,31 @@ let _rafId = null;
 let _hiddenLoopTimer = null;
 const _HIDDEN_TICK_MS = 16; // ~60 fps physics while tab is hidden
 
-// Physics + WS sync + interpolation + trail update — no render.
+// Physics + trail update — no render.
 // Called from loop() when visible and from _hiddenLoop() when tab is hidden.
+// In multiplayer, returns immediately — trajectory is handled by _updateTrajectoryReplay().
 function _physTick() {
   const now = performance.now();
   const frameDelta = Math.min(now - _lastFrameTime, 25);
   _lastFrameTime = now;
+  // Server is authoritative in multiplayer — no local physics during shots.
+  const isMulti = (typeof gameMode !== "undefined" && gameMode === "multiplayer");
+  if (isMulti) return;
+
   const was = moving;
   moving = phys(frameDelta);
   if (was && !moving) shotEnd();
-  // Stream live ball positions to opponent while balls are moving.
-  if (
-    moving &&
-    typeof gameMode !== "undefined" &&
-    gameMode === "multiplayer" &&
-    _myLastShot &&
-    typeof window._wsOnFrame === "function"
-  ) {
-    window._wsOnFrame(balls);
-  }
-  // Interpolate toward remote targets when watching opponent's shot.
-  if (
-    _remoteTargets &&
-    typeof gameMode !== "undefined" &&
-    (gameMode === "multiplayer" || gameMode === "spectator") &&
-    !_myLastShot
-  ) {
-    for (let i = 0; i < balls.length; i++) {
-      const b = balls[i];
-      const t = _remoteTargets[b.id];
-      if (!t) continue;
-      if (t.out) {
-        b.out = true;
-      } else {
-        const dx = (t.x - b.x) * _LERP;
-        const dy = (t.y - b.y) * _LERP;
-        b.x += dx;
-        b.y += dy;
-        if (b.id !== 0) {
-          const spd = Math.sqrt(dx * dx + dy * dy);
-          if (spd > 0.05) {
-            b.totalRotation = (b.totalRotation || 0) + spd * 0.075;
-            const tgt = Math.atan2(dy, dx);
-            let diff = tgt - (b.visualAngle || 0);
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            b.visualAngle = (b.visualAngle || 0) + diff * 0.3;
-          }
-        }
-      }
-    }
-  }
   updateTrails();
 }
 
-// Runs when the tab is hidden: physics only, no render, via setTimeout.
+// Runs when the tab is hidden: physics/replay only, no render, via setTimeout.
 function _hiddenLoop() {
   if (!document.hidden) return; // visibility change beat us here — stop
-  _physTick();
+  if (_isReplaying) {
+    _updateTrajectoryReplay();
+  } else {
+    _physTick();
+  }
   window._lastLoopTs = Date.now();
   _hiddenLoopTimer = setTimeout(_hiddenLoop, _HIDDEN_TICK_MS);
 }
@@ -1564,7 +1558,11 @@ function loop(ts) {
   cx.beginPath();
   cx.arc(mouseX, mouseY, 2, 0, Math.PI * 2);
   cx.fill();
-  _physTick();
+  if (_isReplaying) {
+    _updateTrajectoryReplay();
+  } else {
+    _physTick();
+  }
   drawTrails();
   // DEBUG: visualize cushions
   if (DEBUG_CUSHIONS) {
@@ -1687,6 +1685,7 @@ window.PengPoolGame = {
   applyBallsState,
   applyResult,
   applyFrame,
+  playTrajectory,
   isMyLastShot: () => _myLastShot,
   gatherResult: _gatherResult,
 };
