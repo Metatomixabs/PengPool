@@ -902,9 +902,18 @@ function playTrajectory(frames, result) {
     applyResult(result);
     return;
   }
+  // Snap to authoritative initial state immediately (corrects any local-physics
+  // divergence that occurred while waiting for the server response).
+  const f0 = frames[0];
+  if (f0) {
+    f0.balls.forEach(bd => {
+      const b = balls.find(x => x.id === bd.id);
+      if (b) { b.x = bd.x; b.y = bd.y; b.out = bd.out; }
+    });
+  }
   _replayFrames = frames;
   _replayResult = result;
-  _replayIndex  = 0;
+  _replayIndex  = 1;  // frame 0 already applied above
   _isReplaying  = true;
   _replayLastMs = performance.now();
   moving = true; // block aiming/UI during replay
@@ -915,7 +924,7 @@ function _updateTrajectoryReplay() {
   if (!_isReplaying) return;
 
   const now = performance.now();
-  const DT  = 16;
+  const DT  = 48; // SAMPLE_RATE(3) × serverDT(16ms) — matches real simulation time per frame
   if (now - _replayLastMs < DT) return;
   _replayLastMs = now;
 
@@ -1526,13 +1535,14 @@ function _physTick() {
   const now = performance.now();
   const frameDelta = Math.min(now - _lastFrameTime, 25);
   _lastFrameTime = now;
-  // Server is authoritative in multiplayer — no local physics during shots.
   const isMulti = (typeof gameMode !== "undefined" && gameMode === "multiplayer");
-  if (isMulti) return;
+  // While the authoritative replay is running, skip local physics entirely.
+  if (isMulti && _isReplaying) return;
 
   const was = moving;
   moving = phys(frameDelta);
-  if (was && !moving) shotEnd();
+  // In multiplayer, game logic is handled by applyResult() — never call shotEnd() locally.
+  if (was && !moving && !isMulti) shotEnd();
   updateTrails();
 }
 
