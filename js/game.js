@@ -903,18 +903,9 @@ function playTrajectory(frames, result) {
     return;
   }
   trails = {}; // flush trail data accumulated during local-physics phase
-  // Snap to authoritative initial state immediately (corrects any local-physics
-  // divergence that occurred while waiting for the server response).
-  const f0 = frames[0];
-  if (f0) {
-    f0.balls.forEach(bd => {
-      const b = balls.find(x => x.id === bd.id);
-      if (b) { b.x = bd.x; b.y = bd.y; b.out = bd.out; }
-    });
-  }
   _replayFrames = frames;
   _replayResult = result;
-  _replayIndex  = 1;  // frame 0 already applied above
+  _replayIndex  = 1;  // skip frame 0 (pre-shot positions — already animated by local physics)
   _isReplaying  = true;
   _replayLastMs = performance.now();
   moving = true; // block aiming/UI during replay
