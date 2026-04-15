@@ -902,6 +902,7 @@ function playTrajectory(frames, result) {
     applyResult(result);
     return;
   }
+  trails = {}; // flush trail data accumulated during local-physics phase
   // Snap to authoritative initial state immediately (corrects any local-physics
   // divergence that occurred while waiting for the server response).
   const f0 = frames[0];
