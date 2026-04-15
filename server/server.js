@@ -1485,6 +1485,37 @@ wss.on("connection", (ws, req) => {
         p2EightPocket: logic.p2EightPocket,
       };
 
+      // ── 8-ball gameover detection ──────────────────────────────────────────
+      const eightPocketedThisShot = newlyOut.some(b => b.id === 8);
+      if (eightPocketedThisShot) {
+        const shooter  = ws._playerNum;
+        const opponent = shooter === 1 ? 2 : 1;
+        const cuePocketedThisShot = newlyOut.some(b => b.id === 0);
+        const myT     = shooter === 1 ? logic.p1T : logic.p2T;
+        const myGroup = myT === 'solid' ? [1,2,3,4,5,6,7] : [9,10,11,12,13,14,15];
+        const stillHasOwn = logic.typed
+          ? simResult.balls.filter(b => !b.out && myGroup.includes(b.id)).length > 0
+          : true; // types never assigned → 8 pocketed before clearing own group
+        const myTargetPocket = shooter === 1 ? logic.p1EightPocket : logic.p2EightPocket;
+        const eightPocketIdx = simResult.pocketedInfo[8] ?? null;
+
+        let winnerNum, reason;
+        if (cuePocketedThisShot) {
+          winnerNum = opponent; reason = 'Scratch on the 8-ball!';
+        } else if (!logic.typed || stillHasOwn) {
+          winnerNum = opponent; reason = 'P' + shooter + ' potted 8 too early!';
+        } else if (myTargetPocket !== null && eightPocketIdx !== myTargetPocket) {
+          winnerNum = opponent; reason = 'Wrong pocket for the 8-ball!';
+        } else {
+          winnerNum = shooter; reason = 'Pocketed the 8! 🎉';
+        }
+
+        resultMsg.gameOver  = true;
+        resultMsg.winnerNum = winnerNum;
+        resultMsg.reason    = reason;
+        console.log(`[GAMEOVER] game ${ws._gameId} — P${winnerNum} wins: "${reason}"`);
+      }
+
       room.lastShotInput = { angle, power, spinX, spinY, timestamp: Date.now(), playerNum: ws._playerNum };
       room.gameState = resultMsg;
 

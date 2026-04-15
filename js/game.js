@@ -898,6 +898,11 @@ function applyResult(data) {
       if (typeof stopTurnTimer === "function") stopTurnTimer();
     }
   }
+
+  // 8-ball gameover — server determined winner authoritatively
+  if (data.gameOver) {
+    endGame(data.winnerNum, data.reason);
+  }
 }
 
 // ── Trajectory replay — plays server-sent frame snapshots at 16ms intervals ──
@@ -938,8 +943,9 @@ function _updateTrajectoryReplay() {
           }
           pocketed(b, bestP);
         }
-        b.x   = bd.x;
-        b.y   = bd.y;
+        // Clamp to table bounds when not pocketed (prevents corner-pocket overshoot artefacts)
+        b.x   = bd.out ? bd.x : Math.max(WL + R, Math.min(WR - R, bd.x));
+        b.y   = bd.out ? bd.y : Math.max(WT + R, Math.min(WB - R, bd.y));
         b.out = bd.out;
       }
     });
