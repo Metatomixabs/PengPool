@@ -367,7 +367,7 @@ function computeGameLogic(prevState, preShotBalls, simResult, isBreakShot) {
   }
 
   // ── First-contact foul — replicates shotEnd() check in game.js ───────────
-  if (!cuePocketed && !foulThisTurn) {
+  if (!cuePocketed && !foulThisTurn && !isBreakShot) {
     if (firstContactId === null) {
       foulThisTurn = true;
     } else if (typed && p1T && p2T) {

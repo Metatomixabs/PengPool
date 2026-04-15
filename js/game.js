@@ -1528,8 +1528,7 @@ function _physTick() {
   const frameDelta = Math.min(now - _lastFrameTime, 25);
   _lastFrameTime = now;
   const isMulti = (typeof gameMode !== "undefined" && gameMode === "multiplayer");
-  // While the authoritative replay is running, skip local physics entirely.
-  if (isMulti && _isReplaying) return;
+  if (isMulti) return;
 
   const was = moving;
   moving = phys(frameDelta);
