@@ -644,8 +644,12 @@ function shoot() {
     cur !== myPlayerNum
   )
     return;
-  // No local simulation for multiplayer shots — wait for authoritative trajectory from server
   _applyShot(angle, pwr, spinX, spinY);
+  // Hide cue stick immediately while waiting for the server result
+  if (typeof gameMode !== "undefined" && gameMode === "multiplayer") {
+    aiming = false;
+    moving = true;
+  }
   // Notify ui.js so it can relay the shot over WebSocket
   if (typeof window._wsOnShoot === "function")
     window._wsOnShoot(angle, pwr, spinX, spinY);
@@ -907,7 +911,7 @@ function playTrajectory(frames, result) {
   _replayResult = result;
   _replayIndex  = 1;  // skip frame 0 (pre-shot positions — already animated by local physics)
   _isReplaying  = true;
-  _replayLastMs = performance.now();
+  _replayLastMs = 0; // 0 = apply first frame immediately on first _updateTrajectoryReplay call
   moving = true; // block aiming/UI during replay
   console.log('[TRAJECTORY] Starting replay of ' + frames.length + ' frames');
 }
@@ -917,7 +921,7 @@ function _updateTrajectoryReplay() {
 
   const now = performance.now();
   const DT  = 48; // SAMPLE_RATE(3) × serverDT(16ms) — matches real simulation time per frame
-  if (now - _replayLastMs < DT) return;
+  if (_replayLastMs !== 0 && now - _replayLastMs < DT) return;
   _replayLastMs = now;
 
   const frame = _replayFrames[_replayIndex];
