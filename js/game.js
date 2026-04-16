@@ -985,11 +985,11 @@ function _updateTrajectoryReplay() {
       const now = performance.now();
       frame.collisions.forEach(c => {
         const vol = Math.min(1, c.spd);
-        if (vol < 0.05) return;
-        // Cooldown: skip if a collision was already played within 150ms at the same location
+        if (vol < 0.02) return;
+        // Cooldown: skip if a collision was already played within 80ms at the same location
         const key = Math.round(c.x / 10) + ',' + Math.round(c.y / 10);
         const lastTime = _replayCollisionCooldowns[key] || 0;
-        if (now - lastTime < 150) return;
+        if (now - lastTime < 80) return;
         _replayCollisionCooldowns[key] = now;
         playCollision(vol);
       });
