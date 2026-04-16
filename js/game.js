@@ -944,12 +944,14 @@ function _updateTrajectoryReplay() {
       if (b) {
         // Pocket event detection — trigger sound/particles
         if (!b.out && bd.out) {
-          let bestP = 0, minDist = 999;
-          for (let i = 0; i < PKT.length; i++) {
-            const d = Math.hypot(b.x - PKT[i].x, b.y - PKT[i].y);
-            if (d < minDist) { minDist = d; bestP = i; }
+          if (!_myLastShot) {
+            let bestP = 0, minDist = 999;
+            for (let i = 0; i < PKT.length; i++) {
+              const d = Math.hypot(b.x - PKT[i].x, b.y - PKT[i].y);
+              if (d < minDist) { minDist = d; bestP = i; }
+            }
+            pocketed(b, bestP);
           }
-          pocketed(b, bestP);
         }
         b.x   = bd.x;
         b.y   = bd.y;
@@ -962,7 +964,7 @@ function _updateTrajectoryReplay() {
           const dy = b.y - prev.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (b.id === 0) {
-            b.wbFrame = ((b.wbFrame || 0) + dist * 0.33 + 120) % 120;
+            b.wbFrame = ((b.wbFrame || 0) + dist * 0.8 + 120) % 120;
             // Set synthetic vx/vy so drawBall() can compute rotation angle
             b.vx = dx;
             b.vy = dy;
