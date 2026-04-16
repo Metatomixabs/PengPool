@@ -962,10 +962,10 @@ function _updateTrajectoryReplay() {
           const dy = b.y - prev.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (b.id === 0) {
-            b.wbFrame = (b.wbFrame || 0) + dist * 0.6;
+            b.wbFrame = ((b.wbFrame || 0) + dist * 0.33 + 120) % 120;
             if (dist > 0.1) b.lastAngle = Math.atan2(dy, dx);
           } else {
-            b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
+            b.totalRotation = (b.totalRotation || 0) + dist * 0.025;
             if (dist > 0.1) b.visualAngle = Math.atan2(dy, dx);
           }
           // Store delta for rail detection next frame
@@ -978,7 +978,7 @@ function _updateTrajectoryReplay() {
 
     // --- Collision & rail sound detection ---
     const BALL_R = 14;
-    const COL_DIST = BALL_R * 2.2;
+    const COL_DIST = BALL_R * 2.05;
     const activeBalls = balls.filter(b => !b.out);
 
     // Ball-ball collisions: approaching pair that just entered contact range
