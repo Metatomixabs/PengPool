@@ -918,8 +918,8 @@ function playTrajectory(frames, result) {
   _isReplaying  = true;
   _replayLastMs = 0; // 0 = apply first frame immediately on first _updateTrajectoryReplay call
   moving = true; // block aiming/UI during replay
-  // Cue hit sound at replay start
-  if (typeof playHit === 'function') playHit(0.8);
+  // Cue hit sound — only for opponent (shooter already heard it in _applyShot)
+  if (typeof playHit === 'function' && !_myLastShot) playHit(0.8);
   console.log('[TRAJECTORY] Starting replay of ' + frames.length + ' frames');
 }
 
@@ -963,9 +963,11 @@ function _updateTrajectoryReplay() {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (b.id === 0) {
             b.wbFrame = ((b.wbFrame || 0) + dist * 0.33 + 120) % 120;
-            if (dist > 0.1) b.lastAngle = Math.atan2(dy, dx);
+            // Set synthetic vx/vy so drawBall() can compute rotation angle
+            b.vx = dx;
+            b.vy = dy;
           } else {
-            b.totalRotation = (b.totalRotation || 0) + dist * 0.025;
+            b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
             if (dist > 0.1) b.visualAngle = Math.atan2(dy, dx);
           }
           // Store delta for rail detection next frame
@@ -1014,6 +1016,8 @@ function _updateTrajectoryReplay() {
     _isReplaying  = false;
     _replayFrames = [];
     moving        = false;
+    // Clear synthetic velocities so drawBall() sees balls as stopped
+    balls.forEach(b => { b.vx = 0; b.vy = 0; });
     applyResult(_replayResult);
     console.log('[TRAJECTORY] Replay finished');
   }
