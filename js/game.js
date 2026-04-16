@@ -211,6 +211,7 @@ let _replayIndex  = 0;
 let _replayFrames = [];
 let _replayResult = null;
 let _replayLastMs = 0;
+let _replayCollisionCooldowns = {};
 let firstContactId = null; // id of the first ball the cue touched this shot (null = none yet)
 let _typedAtShotStart = false; // snapshot of `typed` taken when the shot fires — types can be
 // assigned mid-shot (pocketed()), so we must check the PRE-SHOT state
@@ -918,6 +919,7 @@ function playTrajectory(frames, result) {
   _replayIndex  = 1;  // skip frame 0 (pre-shot positions — already animated by local physics)
   _isReplaying  = true;
   _replayLastMs = 0; // 0 = apply first frame immediately on first _updateTrajectoryReplay call
+  _replayCollisionCooldowns = {};
   moving = true; // block aiming/UI during replay
   // Cue hit sound — only for opponent (shooter already heard it in _applyShot)
   if (typeof playHit === 'function' && !_myLastShot) playHit(0.8);
@@ -980,9 +982,16 @@ function _updateTrajectoryReplay() {
 
     // --- Sound events from server ---
     if (frame.collisions) {
+      const now = performance.now();
       frame.collisions.forEach(c => {
         const vol = Math.min(1, c.spd);
-        if (vol > 0.05) playCollision(vol);
+        if (vol < 0.05) return;
+        // Cooldown: skip if a collision was already played within 150ms at the same location
+        const key = Math.round(c.x / 10) + ',' + Math.round(c.y / 10);
+        const lastTime = _replayCollisionCooldowns[key] || 0;
+        if (now - lastTime < 150) return;
+        _replayCollisionCooldowns[key] = now;
+        playCollision(vol);
       });
     }
     if (frame.railHits && frame.railHits.length > 0) {
