@@ -932,10 +932,10 @@ function _updateTrajectoryReplay() {
   if (_replayLastMs !== 0 && now - _replayLastMs < DT) return;
   _replayLastMs = now;
 
-  // Save previous positions (and stored deltas) for rotation & sound detection
+  // Save previous positions for rotation delta calculation
   const prevPositions = {};
   balls.forEach(b => {
-    if (!b.out) prevPositions[b.id] = { x: b.x, y: b.y, _lastDx: b._lastReplayDx || 0, _lastDy: b._lastReplayDy || 0 };
+    if (!b.out) prevPositions[b.id] = { x: b.x, y: b.y };
   });
 
   const frame = _replayFrames[_replayIndex];
@@ -973,45 +973,21 @@ function _updateTrajectoryReplay() {
             b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
             if (dist > 0.1) b.visualAngle = Math.atan2(dy, dx);
           }
-          // Store delta for rail detection next frame
-          b._lastReplayDx = dx;
-          b._lastReplayDy = dy;
         }
       }
     });
     _replayIndex++;
 
-    // --- Collision & rail sound detection ---
-    const activeBalls = balls.filter(b => !b.out);
-
-    // Ball-ball collisions: detect when pair transitions from approaching to separating
-    for (let i = 0; i < activeBalls.length; i++) {
-      for (let j = i + 1; j < activeBalls.length; j++) {
-        const a = activeBalls[i], bBall = activeBalls[j];
-        const prevA = prevPositions[a.id], prevB = prevPositions[bBall.id];
-        if (!prevA || !prevB) continue;
-        const distNow  = Math.hypot(a.x - bBall.x, a.y - bBall.y);
-        const distPrev = Math.hypot(prevA.x - prevB.x, prevA.y - prevB.y);
-        if (distNow > distPrev && distPrev < R * 2.5) {
-          const separatingSpeed = distNow - distPrev;
-          const vol = Math.min(1, separatingSpeed / 6);
-          if (vol > 0.05) playCollision(vol);
-        }
-      }
+    // --- Sound events from server ---
+    if (frame.collisions) {
+      frame.collisions.forEach(c => {
+        const vol = Math.min(1, c.spd);
+        if (vol > 0.05) playCollision(vol);
+      });
     }
-
-    // Rail hits: direction reversal in X or Y with enough speed
-    activeBalls.forEach(b => {
-      const prev = prevPositions[b.id];
-      if (!prev) return;
-      const dx = b._lastReplayDx || 0;
-      const dy = b._lastReplayDy || 0;
-      const spd = Math.hypot(dx, dy);
-      if (spd < 0.5) return;
-      const reversedX = (dx * prev._lastDx < -0.1);
-      const reversedY = (dy * prev._lastDy < -0.1);
-      if (reversedX || reversedY) playRailHit();
-    });
+    if (frame.railHits && frame.railHits.length > 0) {
+      frame.railHits.forEach(() => playRailHit());
+    }
   }
 
   if (_replayIndex >= _replayFrames.length) {

@@ -327,8 +327,12 @@ function simulateShot(ballsSnapshot, angleRad, power, spinX, spinY) {
   };
 
   const pocketedInfo = {}; // ballId → pocket index
+  const collisionEvents = [];
+  const railHitEvents   = [];
   const callbacks = {
-    onPocketed: (ball, pi) => { ball.out = true; ball.vx = 0; ball.vy = 0; pocketedInfo[ball.id] = pi; }
+    onPocketed:  (ball, pi) => { ball.out = true; ball.vx = 0; ball.vy = 0; pocketedInfo[ball.id] = pi; },
+    onCollision: (spd, x, y) => { collisionEvents.push({ step: steps, spd, x, y }); },
+    onRailHit:   () => { railHitEvents.push({ step: steps }); }
   };
 
   const DT          = 16;
@@ -340,17 +344,23 @@ function simulateShot(ballsSnapshot, angleRad, power, spinX, spinY) {
   const snapshots = [];
   snapshots.push({
     balls: balls.map(b => ({ id: b.id, x: b.x, y: b.y, out: b.out })),
-    step: 0
+    step: 0,
+    collisions: [],
+    railHits:   []
   });
 
   while (stillMoving && steps < MAX_STEPS) {
+    const outBefore = balls.map(b => b.out);
     stillMoving = _phys(DT, balls, state, callbacks);
     steps++;
 
-    if (steps % SAMPLE_RATE === 0 || !stillMoving) {
+    const newPocket = balls.some((b, i) => b.out && !outBefore[i]);
+    if (steps % SAMPLE_RATE === 0 || !stillMoving || newPocket) {
       snapshots.push({
-        balls: balls.map(b => ({ id: b.id, x: b.x, y: b.y, out: b.out })),
-        step: steps
+        balls:      balls.map(b => ({ id: b.id, x: b.x, y: b.y, out: b.out })),
+        step:       steps,
+        collisions: collisionEvents.splice(0),
+        railHits:   railHitEvents.splice(0)
       });
     }
   }
