@@ -982,8 +982,7 @@ function _updateTrajectoryReplay() {
     _replayIndex++;
 
     // --- Collision & rail sound detection ---
-    const BALL_R = 14;
-    const COL_DIST = BALL_R * 2.05;
+    const COL_DIST = R * 2.1;
     const activeBalls = balls.filter(b => !b.out);
 
     // Ball-ball collisions: approaching pair that just entered contact range
