@@ -918,6 +918,8 @@ function playTrajectory(frames, result) {
   _isReplaying  = true;
   _replayLastMs = 0; // 0 = apply first frame immediately on first _updateTrajectoryReplay call
   moving = true; // block aiming/UI during replay
+  // Cue hit sound at replay start
+  if (typeof playHit === 'function') playHit(0.8);
   console.log('[TRAJECTORY] Starting replay of ' + frames.length + ' frames');
 }
 
@@ -928,6 +930,12 @@ function _updateTrajectoryReplay() {
   const DT  = 48; // SAMPLE_RATE(3) × serverDT(16ms) — matches real simulation time per frame
   if (_replayLastMs !== 0 && now - _replayLastMs < DT) return;
   _replayLastMs = now;
+
+  // Save previous positions (and stored deltas) for rotation & sound detection
+  const prevPositions = {};
+  balls.forEach(b => {
+    if (!b.out) prevPositions[b.id] = { x: b.x, y: b.y, _lastDx: b._lastReplayDx || 0, _lastDy: b._lastReplayDy || 0 };
+  });
 
   const frame = _replayFrames[_replayIndex];
   if (frame) {
@@ -943,13 +951,63 @@ function _updateTrajectoryReplay() {
           }
           pocketed(b, bestP);
         }
-        // Clamp to table bounds when not pocketed (prevents corner-pocket overshoot artefacts)
-        b.x   = bd.out ? bd.x : Math.max(WL + R, Math.min(WR - R, bd.x));
-        b.y   = bd.out ? bd.y : Math.max(WT + R, Math.min(WB - R, bd.y));
+        b.x   = bd.x;
+        b.y   = bd.y;
         b.out = bd.out;
+
+        // Rotation — derived from position delta vs previous frame
+        const prev = prevPositions[b.id];
+        if (prev && !b.out) {
+          const dx = b.x - prev.x;
+          const dy = b.y - prev.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (b.id === 0) {
+            b.wbFrame = (b.wbFrame || 0) + dist * 0.6;
+            if (dist > 0.1) b.lastAngle = Math.atan2(dy, dx);
+          } else {
+            b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
+            if (dist > 0.1) b.visualAngle = Math.atan2(dy, dx);
+          }
+          // Store delta for rail detection next frame
+          b._lastReplayDx = dx;
+          b._lastReplayDy = dy;
+        }
       }
     });
     _replayIndex++;
+
+    // --- Collision & rail sound detection ---
+    const BALL_R = 14;
+    const COL_DIST = BALL_R * 2.2;
+    const activeBalls = balls.filter(b => !b.out);
+
+    // Ball-ball collisions: approaching pair that just entered contact range
+    for (let i = 0; i < activeBalls.length; i++) {
+      for (let j = i + 1; j < activeBalls.length; j++) {
+        const a = activeBalls[i], bBall = activeBalls[j];
+        const prevA = prevPositions[a.id], prevB = prevPositions[bBall.id];
+        if (!prevA || !prevB) continue;
+        const distNow  = Math.hypot(a.x - bBall.x, a.y - bBall.y);
+        const distPrev = Math.hypot(prevA.x - prevB.x, prevA.y - prevB.y);
+        if (distPrev > distNow && distNow < COL_DIST && distPrev >= COL_DIST) {
+          const vol = Math.min(1, Math.abs(distPrev - distNow) / 8);
+          if (vol > 0.05) playCollision(vol);
+        }
+      }
+    }
+
+    // Rail hits: direction reversal in X or Y with enough speed
+    activeBalls.forEach(b => {
+      const prev = prevPositions[b.id];
+      if (!prev) return;
+      const dx = b._lastReplayDx || 0;
+      const dy = b._lastReplayDy || 0;
+      const spd = Math.hypot(dx, dy);
+      if (spd < 0.5) return;
+      const reversedX = (dx * prev._lastDx < -0.1);
+      const reversedY = (dy * prev._lastDy < -0.1);
+      if (reversedX || reversedY) playRailHit();
+    });
   }
 
   if (_replayIndex >= _replayFrames.length) {
