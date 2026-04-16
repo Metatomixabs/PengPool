@@ -982,10 +982,9 @@ function _updateTrajectoryReplay() {
     _replayIndex++;
 
     // --- Collision & rail sound detection ---
-    const COL_DIST = R * 2.1;
     const activeBalls = balls.filter(b => !b.out);
 
-    // Ball-ball collisions: approaching pair that just entered contact range
+    // Ball-ball collisions: detect when pair transitions from approaching to separating
     for (let i = 0; i < activeBalls.length; i++) {
       for (let j = i + 1; j < activeBalls.length; j++) {
         const a = activeBalls[i], bBall = activeBalls[j];
@@ -993,8 +992,9 @@ function _updateTrajectoryReplay() {
         if (!prevA || !prevB) continue;
         const distNow  = Math.hypot(a.x - bBall.x, a.y - bBall.y);
         const distPrev = Math.hypot(prevA.x - prevB.x, prevA.y - prevB.y);
-        if (distPrev > distNow && distNow < COL_DIST && distPrev >= COL_DIST) {
-          const vol = Math.min(1, Math.abs(distPrev - distNow) / 8);
+        if (distNow > distPrev && distPrev < R * 2.5) {
+          const separatingSpeed = distNow - distPrev;
+          const vol = Math.min(1, separatingSpeed / 6);
           if (vol > 0.05) playCollision(vol);
         }
       }
