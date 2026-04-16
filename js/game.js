@@ -604,6 +604,7 @@ function pocketed(b, pi) {
 
 
 function _applyShot(a, p, sx, sy) {
+  _myLastShot = true;
   // Core shot physics — used by both local shoot() and remote applyRemoteShoot()
   const spd = (p / 85) * MAXP; // used to be 100 slow power shoot, increased the speed for better gameplay and table break.
   cue.vx = Math.cos(a) * spd;
