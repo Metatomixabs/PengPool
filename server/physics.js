@@ -2,13 +2,7 @@
 // Sin reglas de juego, UI, audio ni WebSocket.
 
 // ── Constantes de tabla ──────────────────────────────────────────────────────
-const _W  = 800;
-const _H  = 500;
-const _WL = 55;
-const _WR = _W - 56;   // 744
-const _WT = 76;
-const _WB = _H - 63;   // 437
-const _R  = 11;
+const _R         = 11;
 const _FRIC_BASE = 0.9875;
 const _MINS      = 0.1;
 const _MAXP      = 18;
@@ -30,54 +24,120 @@ function validateShotParams(angle, power, spinX, spinY) {
   return true;
 }
 
-const _PKT = [
-  { x: 46,         y: 66,       r: 24, type: 'corner' },
-  { x: _W / 2.015, y: 55,       r: 24, type: 'mid'    },
-  { x: _W - 47,    y: 67,       r: 24, type: 'corner' },
-  { x: 40,         y: _H - 50,  r: 24, type: 'corner' },
-  { x: _W / 2.01,  y: _H - 39,  r: 24, type: 'mid'    },
-  { x: _W - 47,    y: _H - 52,  r: 24, type: 'corner' },
-];
+// ── Collision shapes (precomputed at module load) ─────────────────────────────
+if (typeof require !== 'undefined') {
+  global.COLLISION_SHAPES = require('./collision_shapes.js').COLLISION_SHAPES;
+}
+// Browser: COLLISION_SHAPES already in global scope from collision_shapes.js <script>
 
-const _corners = [
-  { cx: 369,   cy: 73    }, // central top izq
-  { cx: 431,   cy: 73    }, // central top der
-  { cx: 368,   cy: 440   }, // central bot izq
-  { cx: 429,   cy: 440   }, // central bot der
-  { cx: 84,    cy: 73    }, // TL horizontal
-  { cx: 52,    cy: 106.5 }, // TL vertical
-  { cx: 713.5, cy: 73    }, // TR horizontal
-  { cx: 747,   cy: 107.5 }, // TR vertical
-  { cx: 83,    cy: 440   }, // BL horizontal
-  { cx: 52,    cy: 407   }, // BL vertical
-  { cx: 713,   cy: 440   }, // BR horizontal
-  { cx: 746.5, cy: 409   }, // BR vertical
-];
+function chamferedBox(x, y, w, h, cut) {
+  return [
+    { x: x + cut,     y: y           },
+    { x: x + w - cut, y: y           },
+    { x: x + w,       y: y + cut     },
+    { x: x + w,       y: y + h - cut },
+    { x: x + w - cut, y: y + h       },
+    { x: x + cut,     y: y + h       },
+    { x: x,           y: y + h - cut },
+    { x: x,           y: y + cut     },
+  ];
+}
 
-// ── ballSegmentCollision ─────────────────────────────────────────────────────
-function ballSegmentCollision(b, x1, y1, x2, y2) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return false;
-  let t = ((b.x - x1) * dx + (b.y - y1) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const cx = x1 + t * dx, cy = y1 + t * dy;
-  const ex = b.x - cx, ey = b.y - cy;
-  const dist = Math.sqrt(ex * ex + ey * ey);
-  if (dist < _R && dist > 0.01) {
-    const nx = ex / dist, ny = ey / dist;
-    b.x = cx + nx * (_R + 0.5);
-    b.y = cy + ny * (_R + 0.5);
-    const dot = b.vx * nx + b.vy * ny;
-    if (dot < 0) {
-      b.vx -= 2 * dot * nx;
-      b.vy -= 2 * dot * ny;
-      b.vx *= 0.78;
-      b.vy *= 0.78;
+function precomputeShapes(shapes) {
+  const RAIL_POLYS = [];
+  const POCKETS    = [];
+
+  for (const shape of shapes) {
+    if (shape.type === 'rail') {
+      const vertices = chamferedBox(shape.x, shape.y, shape.w, shape.h, shape.cut);
+      const edges = [];
+      for (let i = 0; i < 8; i++) {
+        const a  = vertices[i];
+        const b  = vertices[(i + 1) % 8];
+        const ex = b.x - a.x;
+        const ey = b.y - a.y;
+        edges.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, ex, ey, lenSq: ex * ex + ey * ey });
+      }
+      RAIL_POLYS.push({ id: shape.id, label: shape.label, vertices, edges });
+    } else if (shape.type === 'pocket') {
+      POCKETS.push({
+        id:     shape.id,
+        label:  shape.label,
+        cx:     shape.cx,
+        cy:     shape.cy,
+        rxInv2: 1 / (shape.rx * shape.rx),
+        ryInv2: 1 / (shape.ry * shape.ry),
+      });
     }
-    return true;
   }
-  return false;
+
+  return { RAIL_POLYS, POCKETS };
+}
+
+const { RAIL_POLYS, POCKETS } = precomputeShapes(COLLISION_SHAPES);
+
+// ── collideBallWithRails ──────────────────────────────────────────────────────
+function collideBallWithRails(ball, onRailHit) {
+  let anyHit = false;
+
+  for (const rail of RAIL_POLYS) {
+    let minDistSq = Infinity;
+    let closestPx = 0;
+    let closestPy = 0;
+
+    for (const edge of rail.edges) {
+      if (edge.lenSq === 0) continue;
+      const t  = Math.max(0, Math.min(1,
+        ((ball.x - edge.ax) * edge.ex + (ball.y - edge.ay) * edge.ey) / edge.lenSq
+      ));
+      const px  = edge.ax + t * edge.ex;
+      const py  = edge.ay + t * edge.ey;
+      const dx  = ball.x - px;
+      const dy  = ball.y - py;
+      const dSq = dx * dx + dy * dy;
+      if (dSq < minDistSq) {
+        minDistSq = dSq;
+        closestPx = px;
+        closestPy = py;
+      }
+    }
+
+    if (minDistSq < _R * _R) {
+      const dist = Math.sqrt(minDistSq);
+      const nx   = dist > 0.001 ? (ball.x - closestPx) / dist : 0;
+      const ny   = dist > 0.001 ? (ball.y - closestPy) / dist : 1;
+
+      // Resolve penetration
+      ball.x = closestPx + nx * _R;
+      ball.y = closestPy + ny * _R;
+
+      // Reflect velocity component along normal (restitution 0.82)
+      const vn = ball.vx * nx + ball.vy * ny;
+      if (vn < 0) {
+        ball.vx -= (1 + 0.82) * vn * nx;
+        ball.vy -= (1 + 0.82) * vn * ny;
+      }
+      anyHit = true;
+    }
+  }
+
+  if (anyHit && onRailHit && Math.hypot(ball.vx, ball.vy) > 1.5) {
+    onRailHit();
+  }
+}
+
+// ── checkPocketEntry ──────────────────────────────────────────────────────────
+function checkPocketEntry(ball, onPocketed) {
+  for (let pi = 0; pi < POCKETS.length; pi++) {
+    const p  = POCKETS[pi];
+    const dx = ball.x - p.cx;
+    const dy = ball.y - p.cy;
+    if (dx * dx * p.rxInv2 + dy * dy * p.ryInv2 <= 1) {
+      ball.vx = 0; ball.vy = 0; ball.out = true;
+      onPocketed(ball, pi);
+      break;
+    }
+  }
 }
 
 // ── _resolveCollisions ───────────────────────────────────────────────────────
@@ -141,17 +201,16 @@ function _resolveCollisions(balls, state, callbacks) {
 // ── _phys ────────────────────────────────────────────────────────────────────
 // frameDelta : ms desde el último frame
 // balls      : array mutable de objetos bola
-// state      : { angle, ballInHand, firstContactId, debugSegments }
+// state      : { angle, ballInHand, firstContactId }
 // callbacks  : { onPocketed(ball,pi), onCollision(spd,x,y), onRailHit() }
 // Retorna    : true si alguna bola sigue en movimiento
 function _phys(frameDelta, balls, state, callbacks) {
-  const debugSegments = state.debugSegments || [];
-  const onPocketed    = callbacks?.onPocketed || ((ball) => { ball.out = true; ball.vx = 0; ball.vy = 0; });
-  const onRailHit     = callbacks?.onRailHit  || null;
+  const onPocketed = callbacks?.onPocketed || ((ball) => { ball.out = true; ball.vx = 0; ball.vy = 0; });
+  const onRailHit  = callbacks?.onRailHit  || null;
 
   const cue = balls.find(b => b.id === 0);
 
-  const dt       = frameDelta / 16.667;
+  const dt        = frameDelta / 16.667;
   const fricFrame = Math.pow(_FRIC_BASE, dt);
   const cueSpeed  = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
   const minSubs   = Math.max(6, Math.ceil(dt / 4));
@@ -208,57 +267,14 @@ function _phys(frameDelta, balls, state, callbacks) {
       if (b === cue && b._ccdDone) {
         b._ccdDone = false;
       } else {
-        const _hitCorners = new Set();
         for (let step = 0; step < substeps; step++) {
           b.x += b.vx * dt / substeps;
           b.y += b.vy * dt / substeps;
 
-          const midGap    = 31;
-          const cornerGap = 31;
-          const nearTL = b.x < _WL + cornerGap && b.y < _WT + cornerGap;
-          const nearTR = b.x > _WR - cornerGap && b.y < _WT + cornerGap;
-          const nearBL = b.x < _WL + cornerGap && b.y > _WB - cornerGap;
-          const nearBR = b.x > _WR - cornerGap && b.y > _WB - cornerGap;
-          const atMidX = b.x > _W / 2 - midGap && b.x < _W / 2 + midGap;
-
-          let hitRail = false;
-          if (!nearTL && !nearBL && b.x - _R < _WL) { b.x = _WL + _R; b.vx *= -0.82; hitRail = true; }
-          if (!nearTR && !nearBR && b.x + _R > _WR) { b.x = _WR - _R; b.vx *= -0.82; hitRail = true; }
-          if (!atMidX && !nearTL && !nearTR && b.y - _R < _WT) { b.y = _WT + _R; b.vy *= -0.82; hitRail = true; }
-          if (!atMidX && !nearBL && !nearBR && b.y + _R > _WB) { b.y = _WB - _R; b.vy *= -0.82; hitRail = true; }
-
-          if (hitRail && onRailHit) {
-            if (Math.sqrt(b.vx * b.vx + b.vy * b.vy) > 1.5) onRailHit();
-          }
-
-          for (let ci = 0; ci < _corners.length; ci++) {
-            if (_hitCorners.has(ci)) continue;
-            const c = _corners[ci];
-            const dx = b.x - c.cx, dy = b.y - c.cy;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < _R + 2 && dist > 0.01) {
-              const nx = dx / dist, ny = dy / dist;
-              b.x += nx * (_R + 2 - dist); b.y += ny * (_R + 2 - dist);
-              const dot = b.vx * nx + b.vy * ny;
-              if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; b.vx *= 0.72; b.vy *= 0.72; }
-              _hitCorners.add(ci);
-            } else {
-              const prevX = b.x - b.vx / substeps, prevY = b.y - b.vy / substeps;
-              const pdx = prevX - c.cx, pdy = prevY - c.cy;
-              const prevDist = Math.sqrt(pdx * pdx + pdy * pdy);
-              if (prevDist < _R + 2) {
-                const nx = pdx / prevDist, ny = pdy / prevDist;
-                b.x = c.cx + nx * (_R + 2); b.y = c.cy + ny * (_R + 2);
-                const dot = b.vx * nx + b.vy * ny;
-                if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; b.vx *= 0.72; b.vy *= 0.72; }
-                _hitCorners.add(ci);
-              }
-            }
-          }
-
-          for (const s of debugSegments)
-            ballSegmentCollision(b, s[0], s[1], s[2], s[3]);
-        } // end SUBSTEPS
+          collideBallWithRails(b, onRailHit);
+          checkPocketEntry(b, onPocketed);
+          if (b.out) break;
+        }
       }
 
       b.vx *= fricFrame; b.vy *= fricFrame;
@@ -286,18 +302,6 @@ function _phys(frameDelta, balls, state, callbacks) {
   _resolveCollisions(balls, state, callbacks);
   _resolveCollisions(balls, state, callbacks);
 
-  for (const b of balls) {
-    if (b.out) continue;
-    for (let pi = 0; pi < _PKT.length; pi++) {
-      const p = _PKT[pi];
-      if (Math.sqrt((b.x - p.x) ** 2 + (b.y - p.y) ** 2) < p.r) {
-        b.vx = 0; b.vy = 0; b.out = true;
-        onPocketed(b, pi);
-        break;
-      }
-    }
-  }
-
   return mv;
 }
 
@@ -323,10 +327,9 @@ function simulateShot(ballsSnapshot, angleRad, power, spinX, spinY) {
     angle:          angleRad,
     ballInHand:     false,
     firstContactId: null,
-    debugSegments:  []
   };
 
-  const pocketedInfo = {}; // ballId → pocket index
+  const pocketedInfo    = {}; // ballId → pocket index
   const collisionEvents = [];
   const railHitEvents   = [];
   const callbacks = {
