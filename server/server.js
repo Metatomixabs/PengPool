@@ -178,8 +178,9 @@ function serverDetermineWinner(gameState, claimedWinnerNum, reason) {
   if (!eightBall || !eightBall.out) return null;
 
   // Scratch on the 8 — server can verify via cueBall.out
+  // gameState.cur is already post-rotation (points to opponent of shooter); opponent wins on scratch
   if (cueBall && cueBall.out) {
-    return gameState.cur === 1 ? 2 : 1;
+    return gameState.cur; // cur === the opponent of the shooter → opponent wins
   }
 
   // Cases the server cannot verify with physics alone (pocket rule, early 8):
@@ -195,7 +196,8 @@ function serverDetermineWinner(gameState, claimedWinnerNum, reason) {
   }
 
   // Clean 8-ball pot — shooter wins
-  return gameState.cur === 1 ? 1 : 2;
+  // gameState.cur is post-rotation → shooter is the opposite of cur
+  return gameState.cur === 1 ? 2 : 1;
 }
 
 function serverValidateLastShot(room) {
@@ -1718,12 +1720,20 @@ wss.on("connection", (ws, req) => {
         else if (votes[2] === 1) trustedWinnerNum = 1; // P2 says P1 won — trust P2 reporting their own loss
         else {
           // Both claiming they won — neither trustworthy
-          // Default: trust the player who reported second (they had more time to observe)
+          // Try physics first; only fall back to second reporter if unverifiable
+          const physicsWinner = serverDetermineWinner(room.gameState, null, msg.reason);
+          if (physicsWinner !== null) {
+            console.log(`[gameover] both claiming victory — physics resolved: P${physicsWinner} wins in game ${ws._gameId}`);
+            serverValidateLastShot(room);
+            _resolveGameover(ws._gameId, room, physicsWinner, msg);
+            return;
+          }
+          // Physics cannot verify (special case) — fall back to second reporter, log warning
           trustedWinnerNum = reportingPlayer === 1 ? votes[1] : votes[2];
-          console.warn(`[gameover] both claiming victory — defaulting to second reporter P${reportingPlayer}'s claim`);
+          console.warn(`[gameover] both claiming victory — physics unverifiable, defaulting to second reporter P${reportingPlayer} (UNVERIFIED) in game ${ws._gameId}`);
         }
-        console.log(`[gameover] dispute resolved: winner=P${trustedWinnerNum} in game ${ws._gameId}`);
         const serverWinner = serverDetermineWinner(room.gameState, trustedWinnerNum, msg.reason);
+        console.log(`[gameover] dispute resolved: winner=P${serverWinner ?? trustedWinnerNum} in game ${ws._gameId}`);
         if (serverWinner === null) {
           console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${trustedWinnerNum}`);
           console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
