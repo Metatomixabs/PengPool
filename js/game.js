@@ -222,6 +222,7 @@ let _noOwnBallsAtShotStart = false; // snapshot: were all own balls already pock
 // prevents false 8-ball rule trigger when last own ball is pocketed this shot
 let bonusShots = 0; // guaranteed shots remaining for the CURRENT player (0–2, from foul)
 let ballInHand = false; // true when player may reposition cue ball along the center line
+let waitingForServer = false; // true while awaiting server confirmation of a shot
 let p1EightPocket = null; // pocket index (into PKT[]) where P1 must pot the 8-ball
 let p2EightPocket = null; // pocket index (into PKT[]) where P2 must pot the 8-ball
 let eightPocketed = false;   // true if the 8-ball entered a pocket this turn
@@ -649,11 +650,14 @@ function shoot() {
     cur !== myPlayerNum
   )
     return;
+  // Block if still waiting for server to confirm the previous shot
+  if (waitingForServer) return;
   _applyShot(angle, pwr, spinX, spinY);
   // Hide cue stick immediately while waiting for the server result
   if (typeof gameMode !== "undefined" && gameMode === "multiplayer") {
     aiming = false;
     moving = true;
+    waitingForServer = true;
   }
   // Notify ui.js so it can relay the shot over WebSocket
   if (typeof window._wsOnShoot === "function")
@@ -863,6 +867,7 @@ function _gatherResult() {
 function applyResult(data) {
   if (!data) return;
   console.log('[SYNC] applying server result — cur='+data.cur+' balls='+(data.balls&&data.balls.length));
+  waitingForServer = false;
 
   // Apply game-logic state
   cur = data.cur;
