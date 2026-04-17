@@ -1717,6 +1717,7 @@ wss.on("connection", (ws, req) => {
       if (votes[1] === votes[2]) {
         // Consensus reached
         console.log(`[gameover] consensus: both players agree winner=P${votes[1]} in game ${ws._gameId}`);
+        console.log('[DEBUG] cur:', room.gameState?.cur, '| shooter was P', room.lastShotInput?.playerNum ?? '?');
         const serverWinner = serverDetermineWinner(room.gameState, votes[1], msg.reason);
         if (serverWinner === null) {
           console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${votes[1]}`);
