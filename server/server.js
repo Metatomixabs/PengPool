@@ -1550,6 +1550,26 @@ wss.on("connection", (ws, req) => {
       _send(ws, resultMsg);
       _send(other, resultMsg);
       _sendSpectators(ws._gameId, resultMsg);
+
+      // ── Server-authoritative settlement — fired after replay completes ────
+      if (resultMsg.gameOver) {
+        const REPLAY_MS_PER_FRAME = 48;
+        const SETTLE_BUFFER_MS    = 3000;
+        const replayDurationMs    = (simResult.frames?.length ?? 0) * REPLAY_MS_PER_FRAME;
+        const settleDelay         = replayDurationMs + SETTLE_BUFFER_MS;
+
+        console.log(`[gameover] scheduling settlement in ${settleDelay}ms (${simResult.frames?.length ?? 0} frames)`);
+
+        setTimeout(() => {
+          const r = rooms.get(ws._gameId);
+          if (!r || _settling.has(String(ws._gameId))) return;
+          // Audit check — redundant since server simulated the shot,
+          // but kept as a sanity log before on-chain settlement.
+          serverValidateLastShot(r);
+          _resolveGameover(ws._gameId, r, resultMsg.winnerNum, {});
+          rooms.delete(ws._gameId);
+        }, settleDelay);
+      }
     }
 
     // ── frame  (no-op — server simulation replaces live frame streaming) ──
@@ -1655,114 +1675,15 @@ wss.on("connection", (ws, req) => {
       _send(other, { type: "timeout" });
     }
 
-    // ── gameover (game ended — relay + on-chain settlement) ───────────────
+    // ── gameover (UI relay only — settlement is handled server-side) ─────────
     else if (msg.type === "gameover") {
       const room = rooms.get(ws._gameId);
       if (!room) return;
-      if (_settling.has(String(ws._gameId))) return; // already settling
-
-      const reportingPlayer = ws._playerNum; // 1 or 2
-      const claimedWinnerNum = msg.winnerNum;
-
-      // Validate winnerNum is 1 or 2
-      if (claimedWinnerNum !== 1 && claimedWinnerNum !== 2) {
-        console.warn(`[gameover] invalid winnerNum ${claimedWinnerNum} from P${reportingPlayer} in ${ws._gameId}`);
-        return;
-      }
-
-      // Initialize consensus tracking on room
-      if (!room.gameoverVotes) room.gameoverVotes = {};
-      room.gameoverVotes[reportingPlayer] = claimedWinnerNum;
-
-      console.log(`[gameover] P${reportingPlayer} reports winner=P${claimedWinnerNum} in game ${ws._gameId}`);
-
-      const votes = room.gameoverVotes;
-      const bothVoted = votes[1] !== undefined && votes[2] !== undefined;
-
-      if (!bothVoted) {
-        // First vote — relay gameover to opponent so they report too
-        const other = reportingPlayer === 1 ? room.p2 : room.p1;
+      // Relay to opponent so their end-screen appears (e.g. on reconnect edge cases)
+      const other = ws._playerNum === 1 ? room.p2 : room.p1;
+      if (!_settling.has(String(ws._gameId))) {
         _send(other, msg);
         _sendSpectators(ws._gameId, msg);
-
-        // Start 10s timeout: if second player doesn't report, trust the first
-        room._gameoverTimeout = setTimeout(() => {
-          const r = rooms.get(ws._gameId);
-          if (!r || _settling.has(String(ws._gameId))) return;
-          if (r.gameoverVotes && Object.keys(r.gameoverVotes).length === 1) {
-            console.warn(`[gameover] timeout — only P${reportingPlayer} voted in ${ws._gameId}, settling with their report`);
-            const serverWinner = serverDetermineWinner(r.gameState, claimedWinnerNum, msg.reason, r.lastShooter);
-            if (serverWinner === null) {
-              console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${claimedWinnerNum}`);
-              console.warn(`[gameover] gameState snapshot:`, JSON.stringify(r.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
-              return;
-            }
-            if (serverWinner !== claimedWinnerNum) {
-              console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${claimedWinnerNum} | server says: ${serverWinner}`);
-            }
-            serverValidateLastShot(r);
-            _resolveGameover(ws._gameId, r, serverWinner, msg);
-          }
-        }, 10000);
-        return;
-      }
-
-      // Both voted — clear timeout
-      if (room._gameoverTimeout) {
-        clearTimeout(room._gameoverTimeout);
-        room._gameoverTimeout = null;
-      }
-
-      if (votes[1] === votes[2]) {
-        // Consensus reached
-        console.log(`[gameover] consensus: both players agree winner=P${votes[1]} in game ${ws._gameId}`);
-        console.log('[DEBUG] cur:', room.gameState?.cur, '| shooter was P', room.lastShotInput?.playerNum ?? '?');
-        const serverWinner = serverDetermineWinner(room.gameState, votes[1], msg.reason, room.lastShooter);
-        if (serverWinner === null) {
-          console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${votes[1]}`);
-          console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
-          return;
-        }
-        if (serverWinner !== votes[1]) {
-          console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${votes[1]} | server says: ${serverWinner}`);
-        }
-        serverValidateLastShot(room);
-        _resolveGameover(ws._gameId, room, serverWinner, msg);
-      } else {
-        // Dispute — log and settle with second reporter's claim after short delay
-        console.warn(`[gameover] DISPUTE in game ${ws._gameId}: P1 says P${votes[1]} won, P2 says P${votes[2]} won`);
-        // In a dispute, we trust the loser's report (the winner wouldn't lie about losing)
-        // P1 says P${votes[1]} won — if votes[1]===2, P1 is reporting they lost (trustworthy)
-        // P2 says P${votes[2]} won — if votes[2]===1, P2 is reporting they lost (trustworthy)
-        let trustedWinnerNum = null;
-        if (votes[1] === 2) trustedWinnerNum = 2; // P1 says P2 won — trust P1 reporting their own loss
-        else if (votes[2] === 1) trustedWinnerNum = 1; // P2 says P1 won — trust P2 reporting their own loss
-        else {
-          // Both claiming they won — neither trustworthy
-          // Try physics first; only fall back to second reporter if unverifiable
-          const physicsWinner = serverDetermineWinner(room.gameState, null, msg.reason, room.lastShooter);
-          if (physicsWinner !== null) {
-            console.log(`[gameover] both claiming victory — physics resolved: P${physicsWinner} wins in game ${ws._gameId}`);
-            serverValidateLastShot(room);
-            _resolveGameover(ws._gameId, room, physicsWinner, msg);
-            return;
-          }
-          // Physics cannot verify (special case) — fall back to second reporter, log warning
-          trustedWinnerNum = reportingPlayer === 1 ? votes[1] : votes[2];
-          console.warn(`[gameover] both claiming victory — physics unverifiable, defaulting to second reporter P${reportingPlayer} (UNVERIFIED) in game ${ws._gameId}`);
-        }
-        const serverWinner = serverDetermineWinner(room.gameState, trustedWinnerNum, msg.reason, room.lastShooter);
-        console.log(`[gameover] dispute resolved: winner=P${serverWinner ?? trustedWinnerNum} in game ${ws._gameId}`);
-        if (serverWinner === null) {
-          console.warn(`[gameover] server could not validate gameState — gameId: ${ws._gameId}, claimedWinner: ${trustedWinnerNum}`);
-          console.warn(`[gameover] gameState snapshot:`, JSON.stringify(room.gameState?.balls?.map(b => ({ id: b.id, out: b.out }))));
-          return;
-        }
-        if (serverWinner !== trustedWinnerNum) {
-          console.warn(`[CHEAT DETECTED] gameId: ${ws._gameId} | P${reportingPlayer} claimed winner: ${trustedWinnerNum} | server says: ${serverWinner}`);
-        }
-        serverValidateLastShot(room);
-        _resolveGameover(ws._gameId, room, serverWinner, msg);
       }
     }
 
