@@ -1004,6 +1004,21 @@ setInterval(() => {
 
 const wss = new WebSocket.Server({ server: httpServer });
 
+// ── WebSocket heartbeat — detecta conexiones muertas silenciosamente ──────────
+const _heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws._wallet) return;
+    if (ws.isAlive === false) {
+      console.warn(`[heartbeat] dead socket — terminating (addr: ${ws._addr || '?'}, gameId: ${ws._gameId || 'none'})`);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30_000);
+
+wss.on("close", () => clearInterval(_heartbeatInterval));
+
 // Init tournament module
 const _wp = _getWalletAndProvider();
 if (_wp) {
@@ -1024,6 +1039,8 @@ wss.on("connection", (ws, req) => {
   ws._authenticated = false;
   ws._authSkipped   = false;
   ws._msgBuffer     = [];
+  ws.isAlive        = true;
+  ws.on("pong", () => { ws.isAlive = true; });
 
   // Issue challenge immediately
   const _nonce = crypto.randomBytes(16).toString("hex");
@@ -1067,7 +1084,8 @@ wss.on("connection", (ws, req) => {
           ws.close(1008, "Invalid or expired session token"); return;
         }
         ws._authenticated = true;
-        ws._addr = addr.toLowerCase();
+        ws._addr   = addr.toLowerCase();
+        ws._wallet = ws._addr;
         console.log(`[auth] token auth: ${addr.slice(0,8)}…`);
         _send(ws, { type: 'auth_ok' });
         const tBuf = ws._msgBuffer; ws._msgBuffer = [];
@@ -1092,7 +1110,8 @@ wss.on("connection", (ws, req) => {
           ws.close(1008, "Authentication failed"); return;
         }
         ws._authenticated = true;
-        ws._addr = addr.toLowerCase();
+        ws._addr   = addr.toLowerCase();
+        ws._wallet = ws._addr;
         // Issue session token so client avoids re-signing on reconnects
         const sessionToken = crypto.randomBytes(32).toString("hex");
         const _expiresAt = Date.now() + _SESSION_TTL_MS;
