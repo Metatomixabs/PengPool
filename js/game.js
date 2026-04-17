@@ -939,22 +939,58 @@ function _updateTrajectoryReplay() {
 
   const now = performance.now();
   const DT  = 48; // SAMPLE_RATE(3) × serverDT(16ms) — matches real simulation time per frame
-  if (_replayLastMs !== 0 && now - _replayLastMs < DT) return;
-  _replayLastMs = now;
 
-  // Save previous positions for rotation delta calculation
-  const prevPositions = {};
-  balls.forEach(b => {
-    if (!b.out) prevPositions[b.id] = { x: b.x, y: b.y };
-  });
+  // Initialize timestamp on first call
+  if (_replayLastMs === 0) _replayLastMs = now;
 
-  const frame = _replayFrames[_replayIndex];
-  if (frame) {
-    frame.balls.forEach(bd => {
-      const b = balls.find(x => x.id === bd.id);
-      if (b) {
-        // Pocket event detection — trigger sound/particles
-        if (!b.out && bd.out) {
+  const t = Math.min((now - _replayLastMs) / DT, 1);
+
+  const frameCur  = _replayFrames[_replayIndex];
+  const frameNext = _replayFrames[_replayIndex + 1];
+
+  // ── Interpolate ball positions ────────────────────────────────────────────
+  if (frameCur) {
+    frameCur.balls.forEach(bdCur => {
+      const b = balls.find(x => x.id === bdCur.id);
+      if (!b || b.out) return;
+
+      const bdNext = frameNext && frameNext.balls.find(x => x.id === bdCur.id);
+      const prevX = b.x, prevY = b.y;
+
+      if (bdNext && !bdNext.out) {
+        b.x = bdCur.x + (bdNext.x - bdCur.x) * t;
+        b.y = bdCur.y + (bdNext.y - bdCur.y) * t;
+      } else {
+        b.x = bdCur.x;
+        b.y = bdCur.y;
+      }
+
+      // Rotation derived from interpolated delta
+      const dx = b.x - prevX;
+      const dy = b.y - prevY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (b.id === 0) {
+        b.wbFrame = ((b.wbFrame || 0) + dist * 0.8 + 120) % 120;
+        b.vx = dx;
+        b.vy = dy;
+      } else if (dist > 0.1) {
+        b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
+        b.visualAngle = Math.atan2(dy, dx);
+      }
+    });
+  }
+
+  // ── Advance frame when interval elapsed — fire events exactly once ────────
+  if (t >= 1) {
+    _replayLastMs = now;
+
+    if (frameCur) {
+      frameCur.balls.forEach(bdCur => {
+        const b = balls.find(x => x.id === bdCur.id);
+        if (!b) return;
+
+        // Pocket event — only when ball transitions out=false → out=true
+        if (!b.out && bdCur.out) {
           if (!_myLastShot) {
             let bestP = 0, minDist = 999;
             for (let i = 0; i < PKT.length; i++) {
@@ -963,48 +999,28 @@ function _updateTrajectoryReplay() {
             }
             pocketed(b, bestP);
           }
+          b.out = true;
         }
-        b.x   = bd.x;
-        b.y   = bd.y;
-        b.out = bd.out;
-
-        // Rotation — derived from position delta vs previous frame
-        const prev = prevPositions[b.id];
-        if (prev && !b.out) {
-          const dx = b.x - prev.x;
-          const dy = b.y - prev.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (b.id === 0) {
-            b.wbFrame = ((b.wbFrame || 0) + dist * 0.8 + 120) % 120;
-            // Set synthetic vx/vy so drawBall() can compute rotation angle
-            b.vx = dx;
-            b.vy = dy;
-          } else {
-            b.totalRotation = (b.totalRotation || 0) + dist * 0.04;
-            if (dist > 0.1) b.visualAngle = Math.atan2(dy, dx);
-          }
-        }
-      }
-    });
-    _replayIndex++;
-
-    // --- Sound events from server ---
-    if (frame.collisions) {
-      const now = performance.now();
-      frame.collisions.forEach(c => {
-        const vol = Math.min(1, c.spd);
-        if (vol < 0.02) return;
-        // Cooldown: skip if a collision was already played within 80ms at the same location
-        const key = Math.round(c.x / 10) + ',' + Math.round(c.y / 10);
-        const lastTime = _replayCollisionCooldowns[key] || 0;
-        if (now - lastTime < 80) return;
-        _replayCollisionCooldowns[key] = now;
-        playCollision(vol);
       });
+
+      // Sound events
+      if (frameCur.collisions) {
+        frameCur.collisions.forEach(c => {
+          const vol = Math.min(1, c.spd);
+          if (vol < 0.02) return;
+          const key = Math.round(c.x / 10) + ',' + Math.round(c.y / 10);
+          const lastTime = _replayCollisionCooldowns[key] || 0;
+          if (now - lastTime < 80) return;
+          _replayCollisionCooldowns[key] = now;
+          playCollision(vol);
+        });
+      }
+      if (frameCur.railHits && frameCur.railHits.length > 0) {
+        frameCur.railHits.forEach(() => playRailHit());
+      }
     }
-    if (frame.railHits && frame.railHits.length > 0) {
-      frame.railHits.forEach(() => playRailHit());
-    }
+
+    _replayIndex++;
   }
 
   if (_replayIndex >= _replayFrames.length) {
