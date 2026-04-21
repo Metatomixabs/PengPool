@@ -160,6 +160,7 @@ function _resolveCollisions(balls, state, callbacks) {
       const a = balls[i], b = balls[j];
       if (a.out || b.out) continue;
       if (state.ballInHand && (a === cue || b === cue)) continue;
+      if ((a === cue && b._ccdHit) || (b === cue && a._ccdHit)) continue;
 
       const dx = b.x - a.x, dy = b.y - a.y;
       const d  = Math.sqrt(dx * dx + dy * dy);
@@ -274,6 +275,7 @@ function _phys(frameDelta, balls, state, callbacks) {
           cue.spun = true;
         }
         cue._ccdDone = true;
+        minO._ccdHit = true;
       }
     }
   }
@@ -321,6 +323,7 @@ function _phys(frameDelta, balls, state, callbacks) {
   _resolveCollisions(balls, state, callbacks);
   _resolveCollisions(balls, state, callbacks);
   _resolveCollisions(balls, state, callbacks);
+  balls.forEach(b => { b._ccdHit = false; });
 
   return mv;
 }
