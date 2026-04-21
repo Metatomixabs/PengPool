@@ -170,14 +170,9 @@ function _resolveCollisions(balls, state, callbacks) {
           state.firstContactId = a.id === 0 ? b.id : a.id;
 
         const nx = dx / d, ny = dy / d;
-        const overlap = mn - d;
-        const spdA = Math.hypot(a.vx, a.vy);
-        const spdB = Math.hypot(b.vx, b.vy);
-        const total = spdA + spdB;
-        const wA = total > 0 ? spdA / total : 0.5;
-        const wB = total > 0 ? spdB / total : 0.5;
-        a.x -= nx * overlap * wA; a.y -= ny * overlap * wA;
-        b.x += nx * overlap * wB; b.y += ny * overlap * wB;
+        const ov = (mn - d) / 2;
+        a.x -= nx * ov; a.y -= ny * ov;
+        b.x += nx * ov; b.y += ny * ov;
 
         const dv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
         if (dv > 0) {
@@ -235,7 +230,6 @@ function _phys(frameDelta, balls, state, callbacks) {
     const speed = Math.sqrt(cue.vx * cue.vx + cue.vy * cue.vy);
     if (speed > _R) {
       const nx0 = cue.vx / speed, ny0 = cue.vy / speed;
-      let minTC = Infinity, minO = null;
       for (const o of balls) {
         if (o === cue || o.out) continue;
         const bx = o.x - cue.x, by = o.y - cue.y;
@@ -244,31 +238,30 @@ function _phys(frameDelta, balls, state, callbacks) {
         const perpSq = bx * bx + by * by - tCA * tCA;
         if (perpSq > _R * 2 * (_R * 2)) continue;
         const tC = tCA - Math.sqrt(_R * 2 * (_R * 2) - perpSq);
-        if (tC > 0 && tC <= speed && tC < minTC) { minTC = tC; minO = o; }
-      }
-      if (minO !== null) {
-        const o = minO;
-        cue.x += nx0 * minTC; cue.y += ny0 * minTC;
-        const dx = o.x - cue.x, dy = o.y - cue.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        const cnx = dx / d, cny = dy / d;
-        const ov = (_R * 2 - d) / 2;
-        cue.x -= cnx * ov; o.x += cnx * ov;
-        cue.y -= cny * ov; o.y += cny * ov;
-        const dv = (cue.vx - o.vx) * cnx + (cue.vy - o.vy) * cny;
-        if (dv > 0) {
-          cue.vx -= dv * cnx; cue.vy -= dv * cny;
-          o.vx   += dv * cnx; o.vy   += dv * cny;
+        if (tC > 0 && tC <= speed) {
+          cue.x += nx0 * tC; cue.y += ny0 * tC;
+          const dx = o.x - cue.x, dy = o.y - cue.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          const cnx = dx / d, cny = dy / d;
+          const ov = (_R * 2 - d) / 2;
+          cue.x -= cnx * ov; o.x += cnx * ov;
+          cue.y -= cny * ov; o.y += cny * ov;
+          const dv = (cue.vx - o.vx) * cnx + (cue.vy - o.vy) * cny;
+          if (dv > 0) {
+            cue.vx -= dv * cnx; cue.vy -= dv * cny;
+            o.vx   += dv * cnx; o.vy   += dv * cny;
+          }
+          if (state.firstContactId === null) state.firstContactId = o.id;
+          if (!cue.spun) {
+            cue.vx += Math.cos(state.angle) * cue.spinY * cue.shotSpd * 0.22;
+            cue.vy += Math.sin(state.angle) * cue.spinY * cue.shotSpd * 0.22;
+            cue.vx += Math.cos(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+            cue.vy += Math.sin(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+            cue.spun = true;
+          }
+          cue._ccdDone = true;
+          break;
         }
-        if (state.firstContactId === null) state.firstContactId = o.id;
-        if (!cue.spun) {
-          cue.vx += Math.cos(state.angle) * cue.spinY * cue.shotSpd * 0.22;
-          cue.vy += Math.sin(state.angle) * cue.spinY * cue.shotSpd * 0.22;
-          cue.vx += Math.cos(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-          cue.vy += Math.sin(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-          cue.spun = true;
-        }
-        cue._ccdDone = true;
       }
     }
   }
