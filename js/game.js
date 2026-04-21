@@ -1542,16 +1542,15 @@ function drawCue() {
       const ddy = (hitBall.y - hitY) / (2 * R);
       const bSX = rectL + hitBall.x * pos.sx;
       const bSY = rectT + hitBall.y * pos.sy;
-      const deflLen = 80 * pos.sx;
+      const deflLen = 40 * pos.sx;
       ox.globalAlpha = 0.5;
       ox.strokeStyle = "rgba(255, 255, 255, 0.7)";
       ox.lineWidth = 1;
-      ox.setLineDash([5, 7]);
+      ox.setLineDash([]);
       ox.beginPath();
       ox.moveTo(bSX, bSY);
       ox.lineTo(bSX + ddx * deflLen, bSY + ddy * deflLen);
       ox.stroke();
-      ox.setLineDash([]);
     }
     ox.restore();
   }
