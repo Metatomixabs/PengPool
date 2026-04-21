@@ -1482,6 +1482,7 @@ function drawCue() {
 
     // ── Find first impact in game coordinates ──────────────────────────────
     let tHit = Infinity;
+    let hitBall = null;
 
     // Check all non-cue balls
     for (const b of balls) {
@@ -1494,7 +1495,7 @@ function drawCue() {
       const D2 = 2 * R * (2 * R);
       if (perpSq > D2) continue; // ray misses
       const tC = tCA - Math.sqrt(D2 - perpSq);
-      if (tC > 0 && tC < tHit) tHit = tC;
+      if (tC > 0 && tC < tHit) { tHit = tC; hitBall = b; }
     }
 
     // Fallback: table cushion boundary derived from COLLISION_SHAPES
@@ -1532,6 +1533,27 @@ function drawCue() {
     ox.strokeStyle = "rgba(255, 255, 255, 0.7)";
     ox.lineWidth = 1.5;
     ox.stroke();
+
+    // Draw deflection line showing target ball's direction after impact
+    if (hitBall !== null) {
+      console.log('[AIM] hitBall detected at', hitBall.x, hitBall.y);
+      const hitX = cue.x + gdx * tHit;
+      const hitY = cue.y + gdy * tHit;
+      const ddx = (hitBall.x - hitX) / (2 * R);
+      const ddy = (hitBall.y - hitY) / (2 * R);
+      const bSX = rectL + hitBall.x * pos.sx;
+      const bSY = rectT + hitBall.y * pos.sy;
+      const deflLen = 80 * pos.sx;
+      ox.globalAlpha = 0.5;
+      ox.strokeStyle = "rgba(255, 255, 255, 0.7)";
+      ox.lineWidth = 1;
+      ox.setLineDash([5, 7]);
+      ox.beginPath();
+      ox.moveTo(bSX, bSY);
+      ox.lineTo(bSX + ddx * deflLen, bSY + ddy * deflLen);
+      ox.stroke();
+      ox.setLineDash([]);
+    }
     ox.restore();
   }
 
