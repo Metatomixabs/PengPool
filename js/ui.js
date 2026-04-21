@@ -2489,9 +2489,9 @@ window._debugWithdrawDeposit = async function() {
   const close = () => overlay.classList.remove('on');
 
   const TABLES = [
-    { tokenId: 0, name: 'Blue Table',   levelRequired: 10, img: 'assets/pooltable/bluePatternBrownFrame.png' },
-    { tokenId: 1, name: 'Red Table',    levelRequired: 20, img: 'assets/pooltable/Red_table.png'             },
-    { tokenId: 2, name: 'Purple Table', levelRequired: 30, img: 'assets/pooltable/Black_table.png'           },
+    { tokenId: 0, name: 'Scrap Table',  levelRequired: 10, img: 'assets/pooltable/scrap_table.png'           },
+    { tokenId: 1, name: 'Blue Table',   levelRequired: 20, img: 'assets/pooltable/bluePatternBrownFrame.png' },
+    { tokenId: 2, name: 'Red Table',    levelRequired: 30, img: 'assets/pooltable/Red_table.png'             },
     { tokenId: 3, name: 'Black Table',  levelRequired: 40, img: 'assets/pooltable/Technologyc_table.png'     },
     { tokenId: 4, name: 'Gold Table',   levelRequired: 50, img: 'assets/pooltable/oldgoldtable2.png'         },
   ];
