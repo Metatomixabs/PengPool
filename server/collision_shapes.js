@@ -3,12 +3,12 @@
 // Para actualizar: abrir shape_editor.html → configurar → Export → reemplazar el contenido de este archivo.
 
 const COLLISION_SHAPES = [
-  { id: 8, label: "pocket_8", type: "pocket", cx: 34, cy: 33, rx: 26, ry: 26 },
-  { id: 10, label: "pocket_10", type: "pocket", cx: 450, cy: 19, rx: 24, ry: 22 },
-  { id: 11, label: "pocket_11", type: "pocket", cx: 867, cy: 32, rx: 26, ry: 26 },
-  { id: 12, label: "pocket_12", type: "pocket", cx: 32, cy: 467, rx: 26, ry: 25 },
-  { id: 13, label: "pocket_13", type: "pocket", cx: 450, cy: 480, rx: 24, ry: 22 },
-  { id: 14, label: "pocket_14", type: "pocket", cx: 867, cy: 467, rx: 26, ry: 24 },
+  { id: 8, label: "pocket_8", type: "pocket", cx: 31, cy: 30, rx: 27, ry: 27 },
+  { id: 10, label: "pocket_10", type: "pocket", cx: 450, cy: 17, rx: 22, ry: 22 },
+  { id: 11, label: "pocket_11", type: "pocket", cx: 869, cy: 30, rx: 27, ry: 27 },
+  { id: 12, label: "pocket_12", type: "pocket", cx: 31, cy: 469, rx: 27, ry: 26 },
+  { id: 13, label: "pocket_13", type: "pocket", cx: 450, cy: 483, rx: 22, ry: 22 },
+  { id: 14, label: "pocket_14", type: "pocket", cx: 869, cy: 469, rx: 27, ry: 26 },
   { id: 18, label: "shape_18", type: "rail", x: 59, y: 4, w: 369, h: 40, cutTL: 10, cutTR: 10, cutBL: 21, cutBR: 15, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 17 },
   { id: 19, label: "shape_19", type: "rail", x: 472, y: 1, w: 370, h: 43, cutTL: 10, cutTR: 10, cutBL: 15, cutBR: 21, angleTL: 45, angleTR: 45, angleBL: 17, angleBR: 45 },
   { id: 20, label: "shape_20", type: "rail", x: 854, y: 57, w: 47, h: 386, cutTL: 38, cutTR: 10, cutBL: 21, cutBR: 10, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },

@@ -7,7 +7,7 @@ const cx = C.getContext("2d");
 cx.imageSmoothingEnabled = true;
 cx.imageSmoothingQuality = 'high';
 const W = C.width,
-  H = C.height; // logical px: 800 × 500
+  H = C.height; // logical px: 900 × 500
 const _dpr = window.devicePixelRatio || 1;
 C.width = W * _dpr;
 C.height = H * _dpr; // physical buffer
@@ -419,7 +419,7 @@ function initState() {
   //   rows: [1] [9,2] [10,8,3] [4,11,12,5] [6,13,14,7,15]
   // Row1: 1(S) | Row2: stripe,stripe | Row3: solid,8,solid | Row4: stripe,solid,stripe,stripe | Row5: solid,stripe,solid,stripe,solid
   const RACK = [1, 9, 10, 2, 8, 3, 11, 4, 12, 13, 5, 14, 6, 15, 7];
-  const rx = 525,
+  const rx = 600,
     ry = H / 2,
     S = Math.sin(Math.PI / 3);
   const spx = Math.sqrt(3) * R * 1.05,
