@@ -249,6 +249,13 @@ function _phys(frameDelta, balls, state, callbacks) {
       if (minO !== null) {
         const o = minO;
         cue.x += nx0 * minTC; cue.y += ny0 * minTC;
+        const dxC = o.x - cue.x, dyC = o.y - cue.y;
+        const dC = Math.sqrt(dxC * dxC + dyC * dyC);
+        if (dC < _R * 2) {
+          const correction = (_R * 2 - dC);
+          cue.x -= (dxC / dC) * correction;
+          cue.y -= (dyC / dC) * correction;
+        }
         const dx = o.x - cue.x, dy = o.y - cue.y;
         const d = Math.sqrt(dx * dx + dy * dy);
         const cnx = dx / d, cny = dy / d;
