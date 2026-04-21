@@ -259,6 +259,7 @@ function _phys(frameDelta, balls, state, callbacks) {
         const dx = o.x - cue.x, dy = o.y - cue.y;
         const d = Math.sqrt(dx * dx + dy * dy);
         const cnx = dx / d, cny = dy / d;
+        console.log('[CCD] dist:', dC.toFixed(3), 'normal angle:', (Math.atan2(cny, cnx) * 180 / Math.PI).toFixed(1), 'speed:', speed.toFixed(2));
         const ov = (_R * 2 - d) / 2;
         cue.x -= cnx * ov; o.x += cnx * ov;
         cue.y -= cny * ov; o.y += cny * ov;
