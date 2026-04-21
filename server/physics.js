@@ -233,58 +233,48 @@ function _phys(frameDelta, balls, state, callbacks) {
     const speed = Math.sqrt(cue.vx * cue.vx + cue.vy * cue.vy);
     if (speed > _R) {
       const nx0 = cue.vx / speed, ny0 = cue.vy / speed;
-      const numSteps = Math.ceil(speed / _R);
-      const origX = cue.x, origY = cue.y;
-      let hit = false;
-      for (let s = 0; s < numSteps && !hit; s++) {
-        const microSpeed = Math.min(_R, speed - s * _R);
-        let minTC = Infinity, minO = null;
-        for (const o of balls) {
-          if (o === cue || o.out) continue;
-          const bx = o.x - cue.x, by = o.y - cue.y;
-          const tCA = bx * nx0 + by * ny0;
-          if (tCA < 0 || tCA > microSpeed) continue;
-          const perpSq = bx * bx + by * by - tCA * tCA;
-          if (perpSq > _R * 2 * (_R * 2)) continue;
-          const tC = tCA - Math.sqrt(_R * 2 * (_R * 2) - perpSq);
-          if (tC > 0 && tC <= microSpeed && tC < minTC) { minTC = tC; minO = o; }
-        }
-        if (minO !== null) {
-          cue.x += nx0 * minTC; cue.y += ny0 * minTC;
-          const dxC = minO.x - cue.x, dyC = minO.y - cue.y;
-          const dC = Math.sqrt(dxC * dxC + dyC * dyC);
-          if (dC < _R * 2) {
-            cue.x -= (dxC / dC) * (_R * 2 - dC);
-            cue.y -= (dyC / dC) * (_R * 2 - dC);
-          }
-          const dx = minO.x - cue.x, dy = minO.y - cue.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          const cnx = dx / d, cny = dy / d;
-          const ov = (_R * 2 - d) / 2;
-          cue.x -= cnx * ov; minO.x += cnx * ov;
-          cue.y -= cny * ov; minO.y += cny * ov;
-          const dv = (cue.vx - minO.vx) * cnx + (cue.vy - minO.vy) * cny;
-          if (dv > 0) {
-            cue.vx -= dv * cnx; cue.vy -= dv * cny;
-            minO.vx += dv * cnx; minO.vy += dv * cny;
-          }
-          if (state.firstContactId === null) state.firstContactId = minO.id;
-          if (!cue.spun) {
-            cue.vx += Math.cos(state.angle) * cue.spinY * cue.shotSpd * 0.22;
-            cue.vy += Math.sin(state.angle) * cue.spinY * cue.shotSpd * 0.22;
-            cue.vx += Math.cos(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-            cue.vy += Math.sin(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
-            cue.spun = true;
-          }
-          cue._ccdDone = true;
-          hit = true;
-        } else {
-          cue.x += nx0 * microSpeed;
-          cue.y += ny0 * microSpeed;
-        }
+      let minTC = Infinity, minO = null;
+      for (const o of balls) {
+        if (o === cue || o.out) continue;
+        const bx = o.x - cue.x, by = o.y - cue.y;
+        const tCA = bx * nx0 + by * ny0;
+        if (tCA < 0 || tCA > speed) continue;
+        const perpSq = bx * bx + by * by - tCA * tCA;
+        if (perpSq > _R * 2 * (_R * 2)) continue;
+        const tC = tCA - Math.sqrt(_R * 2 * (_R * 2) - perpSq);
+        if (tC > 0 && tC <= speed && tC < minTC) { minTC = tC; minO = o; }
       }
-      if (!hit) {
-        cue.x = origX; cue.y = origY;
+      if (minO !== null) {
+        const o = minO;
+        cue.x += nx0 * minTC; cue.y += ny0 * minTC;
+        const dxC = o.x - cue.x, dyC = o.y - cue.y;
+        const dC = Math.sqrt(dxC * dxC + dyC * dyC);
+        if (dC < _R * 2) {
+          const correction = (_R * 2 - dC);
+          cue.x -= (dxC / dC) * correction;
+          cue.y -= (dyC / dC) * correction;
+        }
+        const dx = o.x - cue.x, dy = o.y - cue.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        const cnx = dx / d, cny = dy / d;
+        console.log('[CCD] dist:', dC.toFixed(3), 'normal angle:', (Math.atan2(cny, cnx) * 180 / Math.PI).toFixed(1), 'speed:', speed.toFixed(2));
+        const ov = (_R * 2 - d) / 2;
+        cue.x -= cnx * ov; o.x += cnx * ov;
+        cue.y -= cny * ov; o.y += cny * ov;
+        const dv = (cue.vx - o.vx) * cnx + (cue.vy - o.vy) * cny;
+        if (dv > 0) {
+          cue.vx -= dv * cnx; cue.vy -= dv * cny;
+          o.vx   += dv * cnx; o.vy   += dv * cny;
+        }
+        if (state.firstContactId === null) state.firstContactId = o.id;
+        if (!cue.spun) {
+          cue.vx += Math.cos(state.angle) * cue.spinY * cue.shotSpd * 0.22;
+          cue.vy += Math.sin(state.angle) * cue.spinY * cue.shotSpd * 0.22;
+          cue.vx += Math.cos(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+          cue.vy += Math.sin(state.angle + Math.PI / 2) * cue.spinX * cue.shotSpd * 0.16;
+          cue.spun = true;
+        }
+        cue._ccdDone = true;
       }
     }
   }
