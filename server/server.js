@@ -259,7 +259,7 @@ function makeInitialBalls() {
   const S   = Math.sin(Math.PI / 3);
   const spx = Math.sqrt(3) * R * 1.05;
   const spy = R / S;
-  const rx  = 600, ry = H / 2;
+  const rx  = 600, ry = H / 2 - 1;
   console.log('[RACK DEBUG] rx:', rx, 'ry:', ry, 'H:', H, 'W:', W);
   const RACK = [1, 9, 10, 2, 8, 3, 11, 4, 12, 13, 5, 14, 6, 15, 7];
   const pos  = [

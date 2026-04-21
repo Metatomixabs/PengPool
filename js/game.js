@@ -404,7 +404,7 @@ function initState() {
   cue = {
     id: 0,
     x: 223,
-    y: H / 2,
+    y: H / 2 - 1,
     vx: 0,
     vy: 0,
     out: false,
@@ -420,7 +420,7 @@ function initState() {
   // Row1: 1(S) | Row2: stripe,stripe | Row3: solid,8,solid | Row4: stripe,solid,stripe,stripe | Row5: solid,stripe,solid,stripe,solid
   const RACK = [1, 9, 10, 2, 8, 3, 11, 4, 12, 13, 5, 14, 6, 15, 7];
   const rx = 600,
-    ry = H / 2,
+    ry = H / 2 - 1,
     S = Math.sin(Math.PI / 3);
   const spx = Math.sqrt(3) * R * 1.05,
     spy = (R / S); // removed the 5% gap for better break.
