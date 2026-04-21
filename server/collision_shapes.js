@@ -3,18 +3,18 @@
 // Para actualizar: abrir shape_editor.html → configurar → Export → reemplazar el contenido de este archivo.
 
 const COLLISION_SHAPES = [
-  { id: 2, label: "shape_2", type: "rail", x: 78, y: 26, w: 302, h: 49, cut: 12 },
-  { id: 3, label: "shape_3", type: "rail", x: 416, y: 26, w: 304, h: 50, cut: 12 },
-  { id: 4, label: "shape_4", type: "rail", x: 75, y: 439, w: 304, h: 51, cut: 12 },
-  { id: 5, label: "shape_5", type: "rail", x: 415, y: 439, w: 307, h: 52, cut: 12 },
-  { id: 6, label: "shape_6", type: "rail", x: 14, y: 91, w: 47, h: 334, cut: 13 },
-  { id: 7, label: "shape_7", type: "rail", x: 738, y: 90, w: 55, h: 337, cut: 14 },
-  { id: 8, label: "pocket_8", type: "pocket", cx: 51, cy: 66, rx: 26, ry: 25 },
-  { id: 10, label: "pocket_10", type: "pocket", cx: 397, cy: 58, rx: 22, ry: 21 },
-  { id: 11, label: "pocket_11", type: "pocket", cx: 746, cy: 67, rx: 26, ry: 25 },
-  { id: 12, label: "pocket_12", type: "pocket", cx: 47, cy: 452, rx: 26, ry: 25 },
-  { id: 13, label: "pocket_13", type: "pocket", cx: 397, cy: 456, rx: 20, ry: 19 },
-  { id: 14, label: "pocket_14", type: "pocket", cx: 747, cy: 449, rx: 26, ry: 25 },
+  { id: 8, label: "pocket_8", type: "pocket", cx: 37, cy: 36, rx: 22, ry: 22 },
+  { id: 10, label: "pocket_10", type: "pocket", cx: 450, cy: 22, rx: 22, ry: 19 },
+  { id: 11, label: "pocket_11", type: "pocket", cx: 863, cy: 36, rx: 22, ry: 21 },
+  { id: 12, label: "pocket_12", type: "pocket", cx: 35, cy: 464, rx: 23, ry: 21 },
+  { id: 13, label: "pocket_13", type: "pocket", cx: 450, cy: 478, rx: 22, ry: 19 },
+  { id: 14, label: "pocket_14", type: "pocket", cx: 863, cy: 464, rx: 22, ry: 20 },
+  { id: 18, label: "shape_18", type: "rail", x: 59, y: 4, w: 369, h: 40, cutTL: 10, cutTR: 10, cutBL: 21, cutBR: 15, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 17 },
+  { id: 19, label: "shape_19", type: "rail", x: 472, y: 1, w: 370, h: 43, cutTL: 10, cutTR: 10, cutBL: 15, cutBR: 21, angleTL: 45, angleTR: 45, angleBL: 17, angleBR: 45 },
+  { id: 20, label: "shape_20", type: "rail", x: 854, y: 57, w: 47, h: 386, cutTL: 38, cutTR: 10, cutBL: 21, cutBR: 10, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 21, label: "shape_21", type: "rail", x: -7, y: 57, w: 52, h: 386, cutTL: 10, cutTR: 21, cutBL: 10, cutBR: 21, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 22, label: "shape_22", type: "rail", x: 58, y: 454, w: 371, h: 47, cutTL: 47, cutTR: 15, cutBL: 10, cutBR: 10, angleTL: 45, angleTR: 17, angleBL: 45, angleBR: 45 },
+  { id: 23, label: "shape_23", type: "rail", x: 471, y: 454, w: 370, h: 44, cutTL: 15, cutTR: 21, cutBL: 10, cutBR: 10, angleTL: 17, angleTR: 45, angleBL: 45, angleBR: 45 },
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
