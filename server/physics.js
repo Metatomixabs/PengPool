@@ -182,8 +182,8 @@ function _resolveCollisions(balls, state, callbacks) {
         const dv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
         if (dv > 0) {
           const impulse = dv > 0.01
-            ? Math.max(dv, ov * 0.5, 0.02)
-            : Math.max(dv, ov * 0.5);
+            ? Math.max(dv, overlap * 0.5, 0.02)
+            : Math.max(dv, overlap * 0.5);
           a.vx -= impulse * nx; a.vy -= impulse * ny;
           b.vx += impulse * nx; b.vy += impulse * ny;
 
