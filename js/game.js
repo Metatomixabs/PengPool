@@ -157,12 +157,12 @@ let _wbSpriteDims = null;
 
 const PRAIL = 28;
 const PKT = [
-  { x: 46, y: 66, r: 24, type: "corner" }, // esquina TL
-  { x: W / 2.015, y: 55, r: 24, type: "mid" }, // centro top
-  { x: W - 47, y: 67, r: 24, type: "corner" }, // esquina TR
-  { x: 40, y: H - 50, r: 24, type: "corner" }, // esquina BL
-  { x: W / 2.01, y: H - 39, r: 24, type: "mid" }, // centro bot
-  { x: W - 47, y: H - 52, r: 24, type: "corner" }, // esquina BR
+  { x: 31,  y: 30,  r: 24, type: "corner" }, // esquina TL
+  { x: 450, y: 17,  r: 24, type: "mid" },    // centro top
+  { x: 869, y: 30,  r: 24, type: "corner" }, // esquina TR
+  { x: 31,  y: 469, r: 24, type: "corner" }, // esquina BL
+  { x: 450, y: 483, r: 24, type: "mid" },    // centro bot
+  { x: 869, y: 469, r: 24, type: "corner" }, // esquina BR
 ];
 
 const corners = [
