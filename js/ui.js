@@ -2397,8 +2397,8 @@ function _updCd(){const e=document.getElementById('mmCountdownBadge');if(e)e.tex
   }
 
   function applyGreenDefault(){
-    mesaImg.src='assets/pooltable/t_green.png';
-    localStorage.setItem(STORAGE_KEY, 'assets/pooltable/t_green.png');
+    mesaImg.src='assets/pooltable/OGgreentableLogo.png';
+    localStorage.setItem(STORAGE_KEY, 'assets/pooltable/OGgreentableLogo.png');
     localStorage.removeItem(STORAGE_KEY_TID);
     updateThumbs();
   }
@@ -2440,13 +2440,13 @@ function _updCd(){const e=document.getElementById('mmCountdownBadge');if(e)e.tex
   // Migración: si no hay tokenId guardado, derivarlo del src existente
   if (localStorage.getItem(STORAGE_KEY_TID) === null && saved) {
     const SRC_TO_TID = {
-      't_blue.png': '0', 't_red.png': '1', 't_purple.png': '2',
-      't_black.png': '3', 't_gold.png': '4'
+      'bluePatternBrownFrame.png': '0', 'Red_table.png': '1', 'Black_table.png': '2',
+      'Technologyc_table.png': '3', 'oldgoldtable2.png': '4'
     };
     const fname = saved.split('/').pop();
     const derived = SRC_TO_TID[fname];
     if (derived !== undefined) localStorage.setItem(STORAGE_KEY_TID, derived);
-    // t_green.png → no se setea, queda null = sin verificación ✓
+    // OGgreentableLogo.png → no se setea, queda null = sin verificación ✓
   }
 
   document.getElementById('btnTable').addEventListener('click',open);
@@ -2489,11 +2489,11 @@ window._debugWithdrawDeposit = async function() {
   const close = () => overlay.classList.remove('on');
 
   const TABLES = [
-    { tokenId: 0, name: 'Blue Table',   levelRequired: 10, img: 'assets/pooltable/t_blue.png'   },
-    { tokenId: 1, name: 'Red Table',    levelRequired: 20, img: 'assets/pooltable/t_red.png'    },
-    { tokenId: 2, name: 'Purple Table', levelRequired: 30, img: 'assets/pooltable/t_purple.png' },
-    { tokenId: 3, name: 'Black Table',  levelRequired: 40, img: 'assets/pooltable/t_black.png'  },
-    { tokenId: 4, name: 'Gold Table',   levelRequired: 50, img: 'assets/pooltable/t_gold.png'   },
+    { tokenId: 0, name: 'Blue Table',   levelRequired: 10, img: 'assets/pooltable/bluePatternBrownFrame.png' },
+    { tokenId: 1, name: 'Red Table',    levelRequired: 20, img: 'assets/pooltable/Red_table.png'             },
+    { tokenId: 2, name: 'Purple Table', levelRequired: 30, img: 'assets/pooltable/Black_table.png'           },
+    { tokenId: 3, name: 'Black Table',  levelRequired: 40, img: 'assets/pooltable/Technologyc_table.png'     },
+    { tokenId: 4, name: 'Gold Table',   levelRequired: 50, img: 'assets/pooltable/oldgoldtable2.png'         },
   ];
 
   async function openNFT() {

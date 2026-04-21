@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PengPool — Shape Editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #111827;
+  color: #e5e7eb;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: #1f2937;
+  border-bottom: 1px solid #374151;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+#toolbar .title {
+  color: #f59e0b;
+  font-weight: bold;
+  font-size: 14px;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+#toolbar .sep {
+  width: 1px;
+  height: 20px;
+  background: #374151;
+  margin: 0 4px;
+}
+
+#toolbar .spacer { flex: 1; }
+
+.btn {
+  padding: 5px 11px;
+  cursor: pointer;
+  background: #374151;
+  color: #e5e7eb;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background 0.1s, border-color 0.1s;
+}
+.btn:hover  { background: #4b5563; border-color: #6b7280; }
+.btn.danger { border-color: #ef4444; }
+.btn.danger:hover { background: #ef4444; color: #fff; }
+.btn.rail   { background: #1c1c1c; border-color: #ef4444; color: #fca5a5; }
+.btn.rail:hover   { background: #7f1d1d; border-color: #f87171; color: #fff; }
+.btn.pocket { background: #1c1c1c; border-color: #60a5fa; color: #93c5fd; }
+.btn.pocket:hover { background: #1e3a5f; border-color: #93c5fd; color: #fff; }
+.btn.success { background: #065f46; border-color: #10b981; }
+.btn.success:hover { background: #047857; }
+
+/* ── Main area ── */
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Canvas wrap ── */
+#canvas-wrap {
+  flex-shrink: 0;
+  overflow: auto;
+  background: #0f172a;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+}
+
+#canvas {
+  display: block;
+  cursor: default;
+  border: 1px solid #374151;
+  border-radius: 2px;
+}
+
+/* ── Side panel ── */
+#panel {
+  width: 230px;
+  min-width: 230px;
+  overflow-y: auto;
+  background: #1f2937;
+  border-left: 1px solid #374151;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-section {
+  padding: 12px;
+  border-bottom: 1px solid #374151;
+}
+
+.panel-section h3 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #9ca3af;
+  margin-bottom: 10px;
+}
+
+.field {
+  margin-bottom: 7px;
+}
+.field label {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-bottom: 2px;
+}
+.field input[type="number"],
+.field input[type="text"] {
+  width: 100%;
+  padding: 4px 7px;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  transition: border-color 0.1s;
+}
+.field input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.fields-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+#no-selection {
+  color: #6b7280;
+  font-size: 11px;
+  text-align: center;
+  padding: 16px 0;
+  font-style: italic;
+}
+
+/* ── Shape list ── */
+#shape-list-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+#shape-list-section h3 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #9ca3af;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.shape-item {
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shape-item:hover { background: #374151; }
+.shape-item.active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+.shape-item .item-id { color: #6b7280; flex-shrink: 0; }
+.shape-item .item-label { overflow: hidden; text-overflow: ellipsis; }
+
+/* Type badge in list */
+.type-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.type-dot.rail   { background: #ef4444; }
+.type-dot.pocket { background: #60a5fa; }
+
+/* ── Status bar ── */
+#status-bar {
+  padding: 3px 12px;
+  background: #111827;
+  color: #6b7280;
+  font-size: 11px;
+  flex-shrink: 0;
+  border-top: 1px solid #1f2937;
+}
+
+/* ── Modal ── */
+#modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+#modal-overlay.open { display: flex; }
+
+#modal {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 18px;
+  width: 640px;
+  max-width: 95vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+
+#modal h3 {
+  font-size: 14px;
+  color: #f59e0b;
+  margin-bottom: 0;
+}
+
+#modal-subtitle {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: -8px;
+}
+
+#modal textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 280px;
+  resize: vertical;
+  background: #0f172a;
+  color: #86efac;
+  font-family: inherit;
+  font-size: 11px;
+  border: 1px solid #374151;
+  border-radius: 3px;
+  padding: 10px;
+  line-height: 1.5;
+}
+#modal textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+#coord-display {
+  color: #4b5563;
+  font-size: 11px;
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ TOOLBAR ══════════════════ -->
+<div id="toolbar">
+  <span class="title">PengPool Shape Editor</span>
+  <div class="sep"></div>
+  <button class="btn rail"   id="btn-add-rail">+ Rail</button>
+  <button class="btn pocket" id="btn-add-pocket">◎ Pocket</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-duplicate">Duplicate &nbsp;<kbd style="opacity:.6;font-size:10px">Ctrl+D</kbd></button>
+  <button class="btn danger" id="btn-delete">Delete &nbsp;<kbd style="opacity:.6;font-size:10px">Del</kbd></button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-import">Import</button>
+  <button class="btn success" id="btn-export">Export</button>
+  <div class="spacer"></div>
+  <span id="coord-display">—</span>
+</div>
+
+<!-- ══════════════════ MAIN ══════════════════ -->
+<div id="main">
+
+  <div id="canvas-wrap">
+    <canvas id="canvas" width="900" height="500"></canvas>
+  </div>
+
+  <div id="panel">
+
+    <!-- params section -->
+    <div class="panel-section">
+      <h3>Selected Shape</h3>
+
+      <div id="no-selection">No shape selected.<br>Click a shape or add one.</div>
+
+      <div id="param-fields" style="display:none">
+        <!-- label — common to both types -->
+        <div class="field">
+          <label>Label</label>
+          <input type="text" id="input-label" placeholder="e.g. rail_top_left">
+        </div>
+
+        <!-- Rail fields -->
+        <div id="rail-fields">
+          <div class="fields-grid">
+            <div class="field">
+              <label>X</label>
+              <input type="number" id="input-x" step="1">
+            </div>
+            <div class="field">
+              <label>Y</label>
+              <input type="number" id="input-y" step="1">
+            </div>
+            <div class="field">
+              <label>W</label>
+              <input type="number" id="input-w" step="1" min="2">
+            </div>
+            <div class="field">
+              <label>H</label>
+              <input type="number" id="input-h" step="1" min="2">
+            </div>
+          </div>
+          <div class="fields-grid">
+            <div class="field">
+              <label>Cut TL</label>
+              <input type="number" id="input-cutTL" step="1" min="0">
+            </div>
+            <div class="field">
+              <label>Cut TR</label>
+              <input type="number" id="input-cutTR" step="1" min="0">
+            </div>
+            <div class="field">
+              <label>Cut BL</label>
+              <input type="number" id="input-cutBL" step="1" min="0">
+            </div>
+            <div class="field">
+              <label>Cut BR</label>
+              <input type="number" id="input-cutBR" step="1" min="0">
+            </div>
+          </div>
+          <div class="fields-grid">
+            <div class="field">
+              <label>Angle TL</label>
+              <input type="number" id="input-angleTL" step="1" min="0" max="90">
+            </div>
+            <div class="field">
+              <label>Angle TR</label>
+              <input type="number" id="input-angleTR" step="1" min="0" max="90">
+            </div>
+            <div class="field">
+              <label>Angle BL</label>
+              <input type="number" id="input-angleBL" step="1" min="0" max="90">
+            </div>
+            <div class="field">
+              <label>Angle BR</label>
+              <input type="number" id="input-angleBR" step="1" min="0" max="90">
+            </div>
+          </div>
+        </div>
+
+        <!-- Pocket fields -->
+        <div id="pocket-fields" style="display:none">
+          <div class="fields-grid">
+            <div class="field">
+              <label>CX (center)</label>
+              <input type="number" id="input-cx" step="1">
+            </div>
+            <div class="field">
+              <label>CY (center)</label>
+              <input type="number" id="input-cy" step="1">
+            </div>
+            <div class="field">
+              <label>RX (horiz)</label>
+              <input type="number" id="input-rx" step="1" min="1">
+            </div>
+            <div class="field">
+              <label>RY (vert)</label>
+              <input type="number" id="input-ry" step="1" min="1">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- shape list -->
+    <div id="shape-list-section">
+      <h3>
+        <span>All Shapes</span>
+        <span id="shape-count" style="color:#4b5563">0</span>
+      </h3>
+      <div id="shape-list-items"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════ STATUS BAR ══════════════════ -->
+<div id="status-bar">
+  Click to select &nbsp;·&nbsp;
+  Drag to move &nbsp;·&nbsp;
+  Rail ◼ (bottom-right) → resize W+H &nbsp;·&nbsp;
+  Pocket ◼ right → RX · ◼ bottom → RY &nbsp;·&nbsp;
+  Arrows: nudge 1px · Shift+Arrows: 10px
+</div>
+
+<!-- ══════════════════ MODAL ══════════════════ -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h3 id="modal-title">Export</h3>
+    <div id="modal-subtitle"></div>
+    <textarea id="modal-textarea" spellcheck="false"></textarea>
+    <div class="modal-buttons">
+      <button class="btn" id="modal-copy"  style="display:none">Copy to Clipboard</button>
+      <button class="btn success" id="modal-apply" style="display:none">Apply Import</button>
+      <button class="btn" id="modal-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ SCRIPT ══════════════════ -->
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────
+//  Initial config — loaded only when localStorage is empty
+// ─────────────────────────────────────────────────────────────────
+const INITIAL_SHAPES = [
+  { id: 2, label: "shape_2", type: "rail", x: 78,  y: 26,  w: 302, h: 49,  cutTL: 12, cutTR: 12, cutBL: 12, cutBR: 12, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 3, label: "shape_3", type: "rail", x: 416, y: 26,  w: 304, h: 50,  cutTL: 12, cutTR: 12, cutBL: 12, cutBR: 12, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 4, label: "shape_4", type: "rail", x: 75,  y: 439, w: 305, h: 56,  cutTL: 13, cutTR: 13, cutBL: 13, cutBR: 13, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 5, label: "shape_5", type: "rail", x: 413, y: 440, w: 309, h: 52,  cutTL: 13, cutTR: 13, cutBL: 13, cutBR: 13, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 6, label: "shape_6", type: "rail", x: 14,  y: 91,  w: 48,  h: 333, cutTL: 13, cutTR: 13, cutBL: 13, cutBR: 13, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+  { id: 7, label: "shape_7", type: "rail", x: 737, y: 91,  w: 55,  h: 335, cutTL: 13, cutTR: 13, cutBL: 13, cutBR: 13, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 },
+];
+
+// ─────────────────────────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────────────────────────
+let shapes     = [];
+let nextId     = 1;
+let selectedId = null;
+
+// Interaction
+let interacting = false;
+let iMode       = null;   // 'drag' | 'resize' | 'resize-rx' | 'resize-ry'
+let mouseStartX = 0, mouseStartY = 0;
+let snapStart   = {};     // stores whatever fields we need per mode
+
+const HANDLE_SIZE = 9;
+const HANDLE_HALF = HANDLE_SIZE / 2;
+
+// ─────────────────────────────────────────────────────────────────
+//  Canvas
+// ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+const bgImage = new Image();
+bgImage.src     = 'assets/pooltable/OGgreentableLogo.png';
+bgImage.onload  = render;
+bgImage.onerror = render;
+
+// ─────────────────────────────────────────────────────────────────
+//  Shape geometry
+// ─────────────────────────────────────────────────────────────────
+function chamferedBox(x, y, w, h, cutTL, cutTR, cutBL, cutBR, angleTL, angleTR, angleBL, angleBR) {
+  const maxC = Math.min(w, h) / 2;
+  const clamp = c => Math.min(Math.abs(c), maxC);
+  const deg2rad = a => a * Math.PI / 180;
+  const tl = clamp(cutTL), tr = clamp(cutTR), bl = clamp(cutBL), br = clamp(cutBR);
+  const cxTL = tl * Math.sin(deg2rad(angleTL)), cyTL = tl * Math.cos(deg2rad(angleTL));
+  const cxTR = tr * Math.sin(deg2rad(angleTR)), cyTR = tr * Math.cos(deg2rad(angleTR));
+  const cxBL = bl * Math.sin(deg2rad(angleBL)), cyBL = bl * Math.cos(deg2rad(angleBL));
+  const cxBR = br * Math.sin(deg2rad(angleBR)), cyBR = br * Math.cos(deg2rad(angleBR));
+  return [
+    [x + cxTL,      y            ],
+    [x + w - cxTR,  y            ],
+    [x + w,         y + cyTR     ],
+    [x + w,         y + h - cyBR ],
+    [x + w - cxBR,  y + h        ],
+    [x + cxBL,      y + h        ],
+    [x,             y + h - cyBL ],
+    [x,             y + cyTL     ],
+  ];
+}
+
+function getRailVerts(s) {
+  return chamferedBox(s.x, s.y, s.w, s.h, s.cutTL, s.cutTR, s.cutBL, s.cutBR, s.angleTL, s.angleTR, s.angleBL, s.angleBR);
+}
+
+function pointInPolygon(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if (((yi > py) !== (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointInEllipse(px, py, s) {
+  const dx = px - s.cx, dy = py - s.cy;
+  return (dx * dx) / (s.rx * s.rx) + (dy * dy) / (s.ry * s.ry) <= 1;
+}
+
+function hitShape(s, px, py) {
+  return s.type === 'pocket'
+    ? pointInEllipse(px, py, s)
+    : pointInPolygon(px, py, getRailVerts(s));
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Handles
+// ─────────────────────────────────────────────────────────────────
+// Rail: one handle at bottom-right corner of bounding box
+function getRailHandle(s) {
+  return { x: s.x + s.w - HANDLE_HALF, y: s.y + s.h - HANDLE_HALF };
+}
+
+// Pocket: two handles — right edge (RX) and bottom edge (RY)
+function getPocketHandleRX(s) {
+  return { x: s.cx + s.rx - HANDLE_HALF, y: s.cy - HANDLE_HALF };
+}
+function getPocketHandleRY(s) {
+  return { x: s.cx - HANDLE_HALF, y: s.cy + s.ry - HANDLE_HALF };
+}
+
+function hitRect(hx, hy, px, py) {
+  return px >= hx && px <= hx + HANDLE_SIZE && py >= hy && py <= hy + HANDLE_SIZE;
+}
+
+function hitAnyHandle(s, px, py) {
+  // Returns: null | 'resize' | 'resize-rx' | 'resize-ry'
+  if (s.type === 'pocket') {
+    const hrx = getPocketHandleRX(s);
+    if (hitRect(hrx.x, hrx.y, px, py)) return 'resize-rx';
+    const hry = getPocketHandleRY(s);
+    if (hitRect(hry.x, hry.y, px, py)) return 'resize-ry';
+  } else {
+    const h = getRailHandle(s);
+    if (hitRect(h.x, h.y, px, py)) return 'resize';
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Draw helpers
+// ─────────────────────────────────────────────────────────────────
+function drawHandle(x, y) {
+  ctx.fillStyle   = '#ffffff';
+  ctx.strokeStyle = '#111827';
+  ctx.lineWidth   = 1;
+  ctx.fillRect(x - HANDLE_HALF, y - HANDLE_HALF, HANDLE_SIZE, HANDLE_SIZE);
+  ctx.strokeRect(x - HANDLE_HALF, y - HANDLE_HALF, HANDLE_SIZE, HANDLE_SIZE);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Render
+// ─────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, 900, 500);
+
+  // Background
+  if (bgImage.complete && bgImage.naturalWidth > 0) {
+    ctx.drawImage(bgImage, 0, 0, 900, 500);
+  } else {
+    ctx.fillStyle = '#1a6632';
+    ctx.fillRect(0, 0, 900, 500);
+  }
+
+  for (const s of shapes) {
+    const sel = s.id === selectedId;
+
+    if (s.type === 'pocket') {
+      // Ellipse
+      ctx.beginPath();
+      ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle   = sel ? 'rgba(251,191,36,0.28)' : 'rgba(96,165,250,0.35)';
+      ctx.fill();
+      ctx.strokeStyle = sel ? '#fbbf24' : '#60a5fa';
+      ctx.lineWidth   = sel ? 2 : 1;
+      ctx.stroke();
+
+      // Label
+      ctx.fillStyle    = sel ? '#fef3c7' : '#bfdbfe';
+      ctx.font         = '10px Consolas, monospace';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.label || `#${s.id}`, s.cx, s.cy);
+
+      // Handles
+      if (sel) {
+        drawHandle(s.cx + s.rx, s.cy);   // RX — right edge
+        drawHandle(s.cx, s.cy + s.ry);   // RY — bottom edge
+      }
+
+    } else {
+      // Rail (chamferedBox)
+      const verts = getRailVerts(s);
+      ctx.beginPath();
+      ctx.moveTo(verts[0][0], verts[0][1]);
+      for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i][0], verts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle   = sel ? 'rgba(251,191,36,0.28)' : 'rgba(239,68,68,0.38)';
+      ctx.fill();
+      ctx.strokeStyle = sel ? '#fbbf24' : '#ef4444';
+      ctx.lineWidth   = sel ? 2 : 1;
+      ctx.stroke();
+
+      // Label
+      const lx = s.x + s.w / 2;
+      const ly = s.y + s.h / 2;
+      ctx.fillStyle    = sel ? '#fef3c7' : '#fecaca';
+      ctx.font         = '10px Consolas, monospace';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.label || `#${s.id}`, lx, ly);
+
+      // Handle
+      if (sel) {
+        const h = getRailHandle(s);
+        drawHandle(h.x + HANDLE_HALF, h.y + HANDLE_HALF);
+      }
+    }
+  }
+
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Canvas mouse events
+// ─────────────────────────────────────────────────────────────────
+function canvasPos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const { x, y } = canvasPos(e);
+  mouseStartX = x;
+  mouseStartY = y;
+
+  // 1. Resize handle on the currently selected shape
+  const sel = shapes.find(s => s.id === selectedId);
+  if (sel) {
+    const hMode = hitAnyHandle(sel, x, y);
+    if (hMode) {
+      interacting = true;
+      iMode = hMode;
+      if (hMode === 'resize')    snapStart = { w: sel.w, h: sel.h };
+      if (hMode === 'resize-rx') snapStart = { rx: sel.rx };
+      if (hMode === 'resize-ry') snapStart = { ry: sel.ry };
+      return;
+    }
+  }
+
+  // 2. Shape hit-test (top-most first = last in array)
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    if (hitShape(shapes[i], x, y)) {
+      selectedId  = shapes[i].id;
+      interacting = true;
+      iMode       = 'drag';
+      const s     = shapes[i];
+      snapStart   = s.type === 'pocket' ? { cx: s.cx, cy: s.cy } : { x: s.x, y: s.y };
+      syncPanel();
+      syncList();
+      render();
+      return;
+    }
+  }
+
+  // 3. Empty canvas → deselect
+  selectedId = null;
+  syncPanel();
+  syncList();
+  render();
+});
+
+canvas.addEventListener('mousemove', e => {
+  const { x, y } = canvasPos(e);
+
+  // Coord display
+  document.getElementById('coord-display').textContent = `x:${Math.round(x)}  y:${Math.round(y)}`;
+
+  // Cursor while not dragging
+  if (!interacting) {
+    const sel = shapes.find(s => s.id === selectedId);
+    if (sel) {
+      const hMode = hitAnyHandle(sel, x, y);
+      if (hMode === 'resize')    { canvas.style.cursor = 'nwse-resize'; return; }
+      if (hMode === 'resize-rx') { canvas.style.cursor = 'ew-resize';   return; }
+      if (hMode === 'resize-ry') { canvas.style.cursor = 'ns-resize';   return; }
+    }
+    let onShape = false;
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      if (hitShape(shapes[i], x, y)) { onShape = true; break; }
+    }
+    canvas.style.cursor = onShape ? 'move' : 'default';
+    return;
+  }
+
+  // Apply interaction
+  const dx = x - mouseStartX;
+  const dy = y - mouseStartY;
+  const s  = shapes.find(sh => sh.id === selectedId);
+  if (!s) return;
+
+  if (iMode === 'drag') {
+    if (s.type === 'pocket') {
+      s.cx = Math.round(snapStart.cx + dx);
+      s.cy = Math.round(snapStart.cy + dy);
+    } else {
+      s.x = Math.round(snapStart.x + dx);
+      s.y = Math.round(snapStart.y + dy);
+    }
+  } else if (iMode === 'resize') {
+    s.w = Math.max(2, Math.round(snapStart.w + dx));
+    s.h = Math.max(2, Math.round(snapStart.h + dy));
+  } else if (iMode === 'resize-rx') {
+    s.rx = Math.max(1, Math.round(snapStart.rx + dx));
+  } else if (iMode === 'resize-ry') {
+    s.ry = Math.max(1, Math.round(snapStart.ry + dy));
+  }
+
+  syncPanel();
+  render();
+  saveToStorage();
+});
+
+canvas.addEventListener('mouseup',    endInteraction);
+canvas.addEventListener('mouseleave', endInteraction);
+
+function endInteraction() {
+  interacting = false;
+  iMode       = null;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Keyboard shortcuts
+// ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault(); cmdDelete(); return;
+  }
+  if ((e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault(); cmdDuplicate(); return;
+  }
+  if (e.key === 'Escape') {
+    selectedId = null; syncPanel(); syncList(); render(); return;
+  }
+
+  // Arrow nudge
+  const s = shapes.find(sh => sh.id === selectedId);
+  if (!s) return;
+  const NUDGE = e.shiftKey ? 10 : 1;
+
+  if (s.type === 'pocket') {
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); s.cx -= NUDGE; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); s.cx += NUDGE; }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); s.cy -= NUDGE; }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); s.cy += NUDGE; }
+  } else {
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); s.x -= NUDGE; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); s.x += NUDGE; }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); s.y -= NUDGE; }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); s.y += NUDGE; }
+  }
+
+  syncPanel();
+  render();
+  saveToStorage();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  Commands
+// ─────────────────────────────────────────────────────────────────
+function cmdAddRail() {
+  const id = nextId++;
+  shapes.push({ id, label: `shape_${id}`, type: 'rail', x: 350, y: 220, w: 100, h: 40, cutTL: 10, cutTR: 10, cutBL: 10, cutBR: 10, angleTL: 45, angleTR: 45, angleBL: 45, angleBR: 45 });
+  selectedId = id;
+  syncPanel(); syncList(); render(); saveToStorage();
+}
+
+function cmdAddPocket() {
+  const id = nextId++;
+  shapes.push({ id, label: `pocket_${id}`, type: 'pocket', cx: 400, cy: 250, rx: 22, ry: 22 });
+  selectedId = id;
+  syncPanel(); syncList(); render(); saveToStorage();
+}
+
+function cmdDuplicate() {
+  if (selectedId === null) return;
+  const src = shapes.find(s => s.id === selectedId);
+  if (!src) return;
+  const id  = nextId++;
+  const clone = { ...src, id, label: src.label + '_copy' };
+  if (src.type === 'pocket') { clone.cx += 12; clone.cy += 12; }
+  else                        { clone.x  += 12; clone.y  += 12; }
+  shapes.push(clone);
+  selectedId = id;
+  syncPanel(); syncList(); render(); saveToStorage();
+}
+
+function cmdDelete() {
+  if (selectedId === null) return;
+  shapes     = shapes.filter(s => s.id !== selectedId);
+  selectedId = null;
+  syncPanel(); syncList(); render(); saveToStorage();
+}
+
+document.getElementById('btn-add-rail').addEventListener('click', cmdAddRail);
+document.getElementById('btn-add-pocket').addEventListener('click', cmdAddPocket);
+document.getElementById('btn-duplicate').addEventListener('click', cmdDuplicate);
+document.getElementById('btn-delete').addEventListener('click', cmdDelete);
+
+// ─────────────────────────────────────────────────────────────────
+//  Panel sync
+// ─────────────────────────────────────────────────────────────────
+const noSel       = document.getElementById('no-selection');
+const paramFields = document.getElementById('param-fields');
+const railFields  = document.getElementById('rail-fields');
+const pocketFields = document.getElementById('pocket-fields');
+
+const inp = {
+  label : document.getElementById('input-label'),
+  // rail
+  x     : document.getElementById('input-x'),
+  y     : document.getElementById('input-y'),
+  w     : document.getElementById('input-w'),
+  h     : document.getElementById('input-h'),
+  cutTL   : document.getElementById('input-cutTL'),
+  cutTR   : document.getElementById('input-cutTR'),
+  cutBL   : document.getElementById('input-cutBL'),
+  cutBR   : document.getElementById('input-cutBR'),
+  angleTL : document.getElementById('input-angleTL'),
+  angleTR : document.getElementById('input-angleTR'),
+  angleBL : document.getElementById('input-angleBL'),
+  angleBR : document.getElementById('input-angleBR'),
+  // pocket
+  cx    : document.getElementById('input-cx'),
+  cy    : document.getElementById('input-cy'),
+  rx    : document.getElementById('input-rx'),
+  ry    : document.getElementById('input-ry'),
+};
+
+let panelUpdating = false;
+
+function onPanelChange() {
+  if (panelUpdating) return;
+  const s = shapes.find(sh => sh.id === selectedId);
+  if (!s) return;
+  s.label = inp.label.value;
+  if (s.type === 'pocket') {
+    s.cx = parseInt(inp.cx.value) || 0;
+    s.cy = parseInt(inp.cy.value) || 0;
+    s.rx = Math.max(1, parseInt(inp.rx.value) || 1);
+    s.ry = Math.max(1, parseInt(inp.ry.value) || 1);
+  } else {
+    s.x   = parseInt(inp.x.value)   || 0;
+    s.y   = parseInt(inp.y.value)   || 0;
+    s.w   = Math.max(2, parseInt(inp.w.value)   || 2);
+    s.h   = Math.max(2, parseInt(inp.h.value)   || 2);
+    s.cutTL   = Math.max(0,  parseInt(inp.cutTL.value)   || 0);
+    s.cutTR   = Math.max(0,  parseInt(inp.cutTR.value)   || 0);
+    s.cutBL   = Math.max(0,  parseInt(inp.cutBL.value)   || 0);
+    s.cutBR   = Math.max(0,  parseInt(inp.cutBR.value)   || 0);
+    s.angleTL = Math.min(90, Math.max(0, parseInt(inp.angleTL.value) ?? 45));
+    s.angleTR = Math.min(90, Math.max(0, parseInt(inp.angleTR.value) ?? 45));
+    s.angleBL = Math.min(90, Math.max(0, parseInt(inp.angleBL.value) ?? 45));
+    s.angleBR = Math.min(90, Math.max(0, parseInt(inp.angleBR.value) ?? 45));
+  }
+  syncList();
+  render();
+  saveToStorage();
+}
+
+Object.values(inp).forEach(el => el.addEventListener('input', onPanelChange));
+
+function syncPanel() {
+  panelUpdating = true;
+  const s = shapes.find(sh => sh.id === selectedId);
+  if (!s) {
+    noSel.style.display       = 'block';
+    paramFields.style.display = 'none';
+  } else {
+    noSel.style.display       = 'none';
+    paramFields.style.display = 'block';
+    inp.label.value = s.label;
+
+    if (s.type === 'pocket') {
+      railFields.style.display   = 'none';
+      pocketFields.style.display = 'block';
+      inp.cx.value = s.cx;
+      inp.cy.value = s.cy;
+      inp.rx.value = s.rx;
+      inp.ry.value = s.ry;
+    } else {
+      railFields.style.display   = 'block';
+      pocketFields.style.display = 'none';
+      inp.x.value   = s.x;
+      inp.y.value   = s.y;
+      inp.w.value   = s.w;
+      inp.h.value   = s.h;
+      inp.cutTL.value   = s.cutTL;
+      inp.cutTR.value   = s.cutTR;
+      inp.cutBL.value   = s.cutBL;
+      inp.cutBR.value   = s.cutBR;
+      inp.angleTL.value = s.angleTL;
+      inp.angleTR.value = s.angleTR;
+      inp.angleBL.value = s.angleBL;
+      inp.angleBR.value = s.angleBR;
+    }
+  }
+  panelUpdating = false;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Shape list
+// ─────────────────────────────────────────────────────────────────
+function syncList() {
+  document.getElementById('shape-count').textContent = shapes.length;
+  const container = document.getElementById('shape-list-items');
+  container.innerHTML = '';
+  for (const s of shapes) {
+    const div = document.createElement('div');
+    div.className = 'shape-item' + (s.id === selectedId ? ' active' : '');
+
+    const dot = document.createElement('span');
+    dot.className = `type-dot ${s.type}`;
+
+    const idSpan = document.createElement('span');
+    idSpan.className = 'item-id';
+    idSpan.textContent = `#${s.id}`;
+
+    const lbl = document.createElement('span');
+    lbl.className = 'item-label';
+    lbl.textContent = s.label;
+
+    div.appendChild(dot);
+    div.appendChild(idSpan);
+    div.appendChild(lbl);
+
+    div.addEventListener('click', () => {
+      selectedId = s.id;
+      syncPanel(); syncList(); render();
+    });
+    container.appendChild(div);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Migration helper — normalises any shape from old or new formats
+// ─────────────────────────────────────────────────────────────────
+function migrateShape(s, i) {
+  const type  = s.type === 'pocket' ? 'pocket' : 'rail';
+  const id    = Number.isFinite(+s.id) ? +s.id : i + 1;
+  const label = String(s.label != null ? s.label : `shape_${id}`);
+
+  if (type === 'pocket') {
+    return {
+      id, label, type: 'pocket',
+      cx: +s.cx || 400,
+      cy: +s.cy || 250,
+      rx: Math.max(1, +s.rx || 22),
+      ry: Math.max(1, +s.ry || 22),
+    };
+  }
+  return {
+    id, label, type: 'rail',
+    x  : +s.x  || 0,
+    y  : +s.y  || 0,
+    w  : Math.max(2, +s.w  || 100),
+    h  : Math.max(2, +s.h  || 40),
+    cutTL:   Math.max(0,  +s.cutTL   ?? +s.cut ?? 0),
+    cutTR:   Math.max(0,  +s.cutTR   ?? +s.cut ?? 0),
+    cutBL:   Math.max(0,  +s.cutBL   ?? +s.cut ?? 0),
+    cutBR:   Math.max(0,  +s.cutBR   ?? +s.cut ?? 0),
+    angleTL: Math.min(90, Math.max(0, +s.angleTL ?? 45)),
+    angleTR: Math.min(90, Math.max(0, +s.angleTR ?? 45)),
+    angleBL: Math.min(90, Math.max(0, +s.angleBL ?? 45)),
+    angleBR: Math.min(90, Math.max(0, +s.angleBR ?? 45)),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Export
+// ─────────────────────────────────────────────────────────────────
+function buildExportText() {
+  if (shapes.length === 0) return 'const COLLISION_SHAPES = [];\n';
+  const lines = shapes.map(s => {
+    if (s.type === 'pocket') {
+      return `  { id: ${s.id}, label: "${s.label}", type: "pocket", cx: ${s.cx}, cy: ${s.cy}, rx: ${s.rx}, ry: ${s.ry} },`;
+    }
+    return `  { id: ${s.id}, label: "${s.label}", type: "rail", x: ${s.x}, y: ${s.y}, w: ${s.w}, h: ${s.h}, cutTL: ${s.cutTL}, cutTR: ${s.cutTR}, cutBL: ${s.cutBL}, cutBR: ${s.cutBR}, angleTL: ${s.angleTL}, angleTR: ${s.angleTR}, angleBL: ${s.angleBL}, angleBR: ${s.angleBR} },`;
+  });
+  return `const COLLISION_SHAPES = [\n${lines.join('\n')}\n];\n`;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Modal (Export / Import)
+// ─────────────────────────────────────────────────────────────────
+const modalOverlay  = document.getElementById('modal-overlay');
+const modalTitle    = document.getElementById('modal-title');
+const modalSubtitle = document.getElementById('modal-subtitle');
+const modalTextarea = document.getElementById('modal-textarea');
+const modalCopy     = document.getElementById('modal-copy');
+const modalApply    = document.getElementById('modal-apply');
+const modalClose    = document.getElementById('modal-close');
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const rails   = shapes.filter(s => s.type !== 'pocket').length;
+  const pockets = shapes.filter(s => s.type === 'pocket').length;
+  modalTitle.textContent    = 'Export — COLLISION_SHAPES';
+  modalSubtitle.textContent = `${shapes.length} shapes (${rails} rails, ${pockets} pockets)`;
+  modalTextarea.value       = buildExportText();
+  modalTextarea.readOnly    = true;
+  modalCopy.style.display   = 'inline-block';
+  modalApply.style.display  = 'none';
+  modalOverlay.classList.add('open');
+  modalTextarea.select();
+});
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  modalTitle.textContent    = 'Import — COLLISION_SHAPES / RAIL_SHAPES';
+  modalSubtitle.textContent = 'Paste a const COLLISION_SHAPES = [...]; or RAIL_SHAPES = [...]; block';
+  modalTextarea.value       = '';
+  modalTextarea.readOnly    = false;
+  modalTextarea.placeholder =
+    'const COLLISION_SHAPES = [\n' +
+    '  { id: 1, label: "rail_top", type: "rail", x: 80, y: 26, w: 300, h: 48, cutTL: 12, cutTR: 12, cutBL: 12, cutBR: 12 },\n' +
+    '  { id: 8, label: "pocket_TL", type: "pocket", cx: 45, cy: 50, rx: 22, ry: 22 },\n' +
+    '];';
+  modalCopy.style.display   = 'none';
+  modalApply.style.display  = 'inline-block';
+  modalOverlay.classList.add('open');
+  modalTextarea.focus();
+});
+
+modalCopy.addEventListener('click', () => {
+  const text = modalTextarea.value;
+  navigator.clipboard.writeText(text).then(() => {
+    flashCopy();
+  }).catch(() => {
+    modalTextarea.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    flashCopy();
+  });
+  function flashCopy() {
+    modalCopy.textContent = '✓ Copied!';
+    setTimeout(() => { modalCopy.textContent = 'Copy to Clipboard'; }, 1800);
+  }
+});
+
+modalApply.addEventListener('click', () => {
+  const text = modalTextarea.value.trim();
+  try {
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    if (!arrayMatch) throw new Error('No array [ ... ] found in pasted text.');
+    // eslint-disable-next-line no-new-func
+    const arr = (new Function('return ' + arrayMatch[0]))();
+    if (!Array.isArray(arr)) throw new Error('Parsed value is not an array.');
+
+    shapes = arr.map((s, i) => migrateShape(s, i));
+    nextId = Math.max(0, ...shapes.map(s => s.id)) + 1;
+    selectedId = null;
+    syncPanel(); syncList(); render(); saveToStorage();
+    modalOverlay.classList.remove('open');
+  } catch (err) {
+    alert('Import failed: ' + err.message);
+  }
+});
+
+modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
+modalOverlay.addEventListener('click', e => {
+  if (e.target === modalOverlay) modalOverlay.classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && modalOverlay.classList.contains('open')) {
+    modalOverlay.classList.remove('open');
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  localStorage
+// ─────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'pengpool_shape_editor_v1';
+
+function saveToStorage() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ shapes, nextId }));
+  } catch (_) {}
+}
+
+/** Returns true if data was loaded successfully. */
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.shapes) || data.shapes.length === 0) return false;
+    // Migrate shapes (adds type: 'rail' to old entries that lack it)
+    shapes = data.shapes.map((s, i) => migrateShape(s, i));
+    nextId = Number.isFinite(data.nextId) ? data.nextId : Math.max(0, ...shapes.map(s => s.id)) + 1;
+    return true;
+  } catch (_) { return false; }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────────────────────────────
+const storedOk = loadFromStorage();
+if (!storedOk) {
+  // First run (or cleared storage) — seed with the 6 known rails
+  shapes = INITIAL_SHAPES.map((s, i) => migrateShape(s, i));
+  nextId = Math.max(0, ...shapes.map(s => s.id)) + 1;
+}
+
+syncPanel();
+syncList();
+render();
+</script>
+</body>
+</html>
