@@ -30,16 +30,24 @@ if (typeof require !== 'undefined') {
 }
 // Browser: COLLISION_SHAPES already in global scope from collision_shapes.js <script>
 
-function chamferedBox(x, y, w, h, cut) {
+function chamferedBox(x, y, w, h, cutTL, cutTR, cutBL, cutBR, angleTL, angleTR, angleBL, angleBR) {
+  const maxC = Math.min(w, h) / 2;
+  const clamp = c => Math.min(Math.abs(c), maxC);
+  const deg2rad = a => a * Math.PI / 180;
+  const tl = clamp(cutTL), tr = clamp(cutTR), bl = clamp(cutBL), br = clamp(cutBR);
+  const cxTL = tl * Math.sin(deg2rad(angleTL)), cyTL = tl * Math.cos(deg2rad(angleTL));
+  const cxTR = tr * Math.sin(deg2rad(angleTR)), cyTR = tr * Math.cos(deg2rad(angleTR));
+  const cxBL = bl * Math.sin(deg2rad(angleBL)), cyBL = bl * Math.cos(deg2rad(angleBL));
+  const cxBR = br * Math.sin(deg2rad(angleBR)), cyBR = br * Math.cos(deg2rad(angleBR));
   return [
-    { x: x + cut,     y: y           },
-    { x: x + w - cut, y: y           },
-    { x: x + w,       y: y + cut     },
-    { x: x + w,       y: y + h - cut },
-    { x: x + w - cut, y: y + h       },
-    { x: x + cut,     y: y + h       },
-    { x: x,           y: y + h - cut },
-    { x: x,           y: y + cut     },
+    { x: x + cxTL,     y: y            },
+    { x: x + w - cxTR, y: y            },
+    { x: x + w,        y: y + cyTR     },
+    { x: x + w,        y: y + h - cyBR },
+    { x: x + w - cxBR, y: y + h        },
+    { x: x + cxBL,     y: y + h        },
+    { x: x,            y: y + h - cyBL },
+    { x: x,            y: y + cyTL     },
   ];
 }
 
@@ -49,7 +57,7 @@ function precomputeShapes(shapes) {
 
   for (const shape of shapes) {
     if (shape.type === 'rail') {
-      const vertices = chamferedBox(shape.x, shape.y, shape.w, shape.h, shape.cut);
+      const vertices = chamferedBox(shape.x, shape.y, shape.w, shape.h, shape.cutTL, shape.cutTR, shape.cutBL, shape.cutBR, shape.angleTL, shape.angleTR, shape.angleBL, shape.angleBR);
       const edges = [];
       for (let i = 0; i < 8; i++) {
         const a  = vertices[i];
