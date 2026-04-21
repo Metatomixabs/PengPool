@@ -1536,6 +1536,7 @@ function drawCue() {
 
     // Draw deflection line showing target ball's direction after impact
     if (hitBall !== null) {
+      console.log('[AIM] hitBall detected at', hitBall.x, hitBall.y);
       const hitX = cue.x + gdx * tHit;
       const hitY = cue.y + gdy * tHit;
       const ddx = (hitBall.x - hitX) / (2 * R);
