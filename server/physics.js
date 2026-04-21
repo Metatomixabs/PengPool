@@ -222,7 +222,7 @@ function _phys(frameDelta, balls, state, callbacks) {
   const fricFrame = Math.pow(_FRIC_BASE, dt);
   const cueSpeed  = cue && !cue.out ? Math.hypot(cue.vx, cue.vy) : 0;
   const minSubs   = Math.max(6, Math.ceil(dt / 4));
-  const substeps  = Math.max(minSubs, Math.min(16, Math.ceil(cueSpeed * dt / (_R * 0.5))));
+  const substeps  = Math.max(minSubs, Math.min(32, Math.ceil(cueSpeed * dt / (_R * 0.3))));
   let mv = false;
 
   // CCD para la bola blanca
