@@ -238,11 +238,11 @@ function _phys(frameDelta, balls, state, callbacks) {
         if (o === cue || o.out) continue;
         const bx = o.x - cue.x, by = o.y - cue.y;
         const tCA = bx * nx0 + by * ny0;
-        if (tCA < 0 || tCA > speed) continue;
+        if (tCA < 0 || tCA > speed + _R) continue;
         const perpSq = bx * bx + by * by - tCA * tCA;
         if (perpSq > _R * 2 * (_R * 2)) continue;
         const tC = tCA - Math.sqrt(_R * 2 * (_R * 2) - perpSq);
-        if (tC > 0 && tC <= speed && tC < minTC) { minTC = tC; minO = o; }
+        if (tC > 0 && tC <= speed + _R && tC < minTC) { minTC = tC; minO = o; }
       }
       if (minO !== null) {
         const o = minO;
