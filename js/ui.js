@@ -1492,7 +1492,7 @@ function _cueMouseMove(e){
     if(ballInHand){
       // Drag cue ball preview along the vertical head-string (x fixed, y free)
       cue.x=BIH_X;
-      cue.y=Math.max(WT+R,Math.min(WB-R,my));
+      cue.y=Math.max(_AIM_BOUNDS.WT,Math.min(_AIM_BOUNDS.WB,my));
       cue.vx=0;cue.vy=0;
       aiming=false;
       if(gameMode==='multiplayer'&&typeof _wsSend==='function'&&currentGameId){
@@ -1558,7 +1558,8 @@ C.addEventListener('mousedown',e=>{
     return;
   }
   const _r=C.getBoundingClientRect();
-  _dragOrigin={x:(e.clientX-_r.left)*(W/_r.width),y:(e.clientY-_r.top)*(H/_r.height)};
+  const _z=typeof _getCanvasZoom==='function'?_getCanvasZoom():1;
+  _dragOrigin={x:(e.clientX/_z-_r.left/_z)*(W/(_r.width/_z)),y:(e.clientY/_z-_r.top/_z)*(H/(_r.height/_z))};
   _lockedAngle=angle;
   charging=true;pwr=0;
   document.addEventListener('mousemove',_cueMouseMove);
