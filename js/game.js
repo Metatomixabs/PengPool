@@ -6,14 +6,14 @@ const C = document.getElementById("pool");
 const cx = C.getContext("2d");
 cx.imageSmoothingEnabled = true;
 cx.imageSmoothingQuality = 'high';
-const W = C.width,
-  H = C.height; // logical px: 900 × 500
+const W = 900, H = 500;
+const DISPLAY_W = 1170, DISPLAY_H = 650;
 const _dpr = window.devicePixelRatio || 1;
-C.width = W * _dpr;
-C.height = H * _dpr; // physical buffer
-C.style.width = W + "px";
-C.style.height = H + "px"; // CSS size unchanged
-cx.scale(_dpr, _dpr); // all draw calls use logical coords
+C.width  = DISPLAY_W * _dpr;
+C.height = DISPLAY_H * _dpr;
+C.style.width  = DISPLAY_W + "px";
+C.style.height = DISPLAY_H + "px";
+cx.scale(_dpr * DISPLAY_W / W, _dpr * DISPLAY_H / H);
 function _getCanvasZoom() {
   let el = C, z = 1;
   while (el) {
@@ -115,14 +115,15 @@ const WB_CROP = { x: 27, y: 7, w: 37, h: 37 };
 // _ballOverlayCanvas: shading, specular and rim pre-baked once at startup.
 // Drawn over each ball with a single drawImage — removes 2× createRadialGradient
 // and 5× addColorStop from the hot path (called 16× per frame at 60 fps).
-const _OL_PAD = 1; // 1px padding so the 0.5px rim stroke is not clipped
+const _OL_PAD = 1;
 const _ballOverlayCanvas = (function () {
   const size = R * 2 + _OL_PAD * 2;
   const oc = document.createElement('canvas');
-  oc.width  = size;
-  oc.height = size;
+  oc.width  = size * _dpr;
+  oc.height = size * _dpr;
   const ctx = oc.getContext('2d');
-  ctx.translate(R + _OL_PAD, R + _OL_PAD); // (0,0) = ball centre
+  ctx.scale(_dpr, _dpr);
+  ctx.translate(R + _OL_PAD, R + _OL_PAD);
 
   // Shading + shine must be clipped to the ball circle
   ctx.save();
@@ -1435,10 +1436,10 @@ function drawCue() {
       if (tC > 0 && tC < tHit) tHit = tC;
     }
     if (tHit === Infinity) {
-      const _WL = 37 + R,
-        _WR = W - 37 - R,
-        _WT = 75 + R,
-        _WB = H - 55 - R,
+      const _WL = _AIM_BOUNDS.WL,
+        _WR = _AIM_BOUNDS.WR,
+        _WT = _AIM_BOUNDS.WT,
+        _WB = _AIM_BOUNDS.WB,
         ts = [];
       if (gdx > 1e-9) ts.push((_WR - cue.x) / gdx);
       if (gdx < -1e-9) ts.push((_WL - cue.x) / gdx);
