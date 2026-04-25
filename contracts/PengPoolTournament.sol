@@ -147,8 +147,8 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
         address creator
     ) external onlyOwner returns (uint256 tournamentId) {
         require(
-            buyInUSD == 1 || buyInUSD == 2 || buyInUSD == 5,
-            "PengPoolTournament: buy-in must be 1, 2, or 5 USD"
+            buyInUSD == 0 || buyInUSD == 1 || buyInUSD == 2 || buyInUSD == 5,
+            "PengPoolTournament: buy-in must be 0, 1, 2, or 5 USD"
         );
         if (!isCustom) {
             require(buyInUSD == 2, "PengPoolTournament: regular tournament buy-in must be 2 USD");
@@ -195,11 +195,14 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
             "PengPoolTournament: player already registered"
         );
 
-        uint256 baseAmount = buyInAmountWei(t.buyInUSD);
-        uint256 maxAmount  = baseAmount + (baseAmount * SLIPPAGE_BPS / 10000);
-
-        require(msg.value >= baseAmount, "PengPoolTournament: insufficient ETH sent");
-        require(msg.value <= maxAmount,  "PengPoolTournament: ETH amount exceeds slippage tolerance");
+        if (t.buyInUSD == 0) {
+            require(msg.value == 0, "PengPoolTournament: free tournament requires no ETH");
+        } else {
+            uint256 baseAmount = buyInAmountWei(t.buyInUSD);
+            uint256 maxAmount  = baseAmount + (baseAmount * SLIPPAGE_BPS / 10000);
+            require(msg.value >= baseAmount, "PengPoolTournament: insufficient ETH sent");
+            require(msg.value <= maxAmount,  "PengPoolTournament: ETH amount exceeds slippage tolerance");
+        }
 
         isRegistered[tournamentId][msg.sender]     = true;
         playerDeposits[tournamentId][msg.sender]   = msg.value;
@@ -277,6 +280,15 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
         require(totalPct == 100, "PengPoolTournament: percentages must sum to 100");
 
         uint256 totalPrize  = t.prizePoolETH;
+
+        // Free tournament — no ETH to distribute; just mark as finished
+        if (totalPrize == 0) {
+            t.status        = TournamentStatus.FINISHED;
+            t.distributedAt = block.timestamp;
+            emit PrizesDistributed(tournamentId, 0, winners);
+            return;
+        }
+
         uint256 commission  = totalPrize * COMMISSION_BPS / 10000;
         uint256 prizePool   = totalPrize - commission;  // guaranteed 90% of total
 

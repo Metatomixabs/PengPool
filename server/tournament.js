@@ -7,7 +7,7 @@ const cron        = require("node-cron");
 // Contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOURNAMENT_ADDRESS = "0x03F938697Ec69232426a5B82187Ef2c7BF561dEF";
+const TOURNAMENT_ADDRESS = process.env.TOURNAMENT_ADDRESS || "0xb1176E38C4Dd1416b71a818d1A7601fcCee6f581";
 
 const TOURNAMENT_ABI = [
   "function createTournament(string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator) external returns (uint256)",
@@ -290,7 +290,7 @@ function initTournament(wss, pool, wallet, provider, rooms) {
 async function createCustomTournament(creatorAddr, name, buyInUSD, startTimeUnix) {
   if (!name || !name.trim())           throw new Error("Name cannot be empty");
   if (name.trim().length > 50)         throw new Error("Name cannot exceed 50 characters");
-  if (![1, 2, 5].includes(Number(buyInUSD))) throw new Error("Buy-in must be 1, 2, or 5 USD");
+  if (![0, 1, 2, 5].includes(Number(buyInUSD))) throw new Error("Buy-in must be 0, 1, 2, or 5 USD");
   if (startTimeUnix <= Math.floor(Date.now() / 1000)) throw new Error("Start time must be in the future");
 
   const startTime = new Date(startTimeUnix * 1000);
@@ -712,17 +712,21 @@ async function finalizeTournament(tournamentDbId) {
 
   console.log(`[tournament] distributePrizes: id=${tournamentDbId} winners=`, winnerAddrs);
 
-  try {
-    const tx = await _getContract().distributePrizes(
-      BigInt(t.chain_id),
-      winnerAddrs,
-      percentages.map(p => BigInt(p))
-    );
-    await tx.wait();
-    console.log(`[tournament] distributePrizes confirmed: ${tx.hash}`);
-  } catch (e) {
-    console.error("[tournament] distributePrizes failed:", e.message);
-    // Continue — still update DB so the tournament doesn't stay 'active' forever
+  if (parseFloat(t.prize_pool_eth) > 0) {
+    try {
+      const tx = await _getContract().distributePrizes(
+        BigInt(t.chain_id),
+        winnerAddrs,
+        percentages.map(p => BigInt(p))
+      );
+      await tx.wait();
+      console.log(`[tournament] distributePrizes confirmed: ${tx.hash}`);
+    } catch (e) {
+      console.error("[tournament] distributePrizes failed:", e.message);
+      // Continue — still update DB so the tournament doesn't stay 'active' forever
+    }
+  } else {
+    console.log(`[tournament] free tournament ${tournamentDbId} — skipping distributePrizes`);
   }
 
   // Update DB
@@ -746,13 +750,15 @@ async function finalizeTournament(tournamentDbId) {
 
   _broadcast({ type: "tournament_finished", tournamentId: tournamentDbId, standings: standingsOut });
 
-  for (const entry of standingsOut) {
-    _sendToAddr(entry.addr, {
-      type:              "tournament_prize_available",
-      tournamentId:      tournamentDbId,
-      position:          entry.position,
-      estimatedPrizeETH: entry.prizeETH,
-    });
+  if (prizePoolFloat > 0) {
+    for (const entry of standingsOut) {
+      _sendToAddr(entry.addr, {
+        type:              "tournament_prize_available",
+        tournamentId:      tournamentDbId,
+        position:          entry.position,
+        estimatedPrizeETH: entry.prizeETH,
+      });
+    }
   }
 
   console.log(`[tournament] finalized: id=${tournamentDbId}`);

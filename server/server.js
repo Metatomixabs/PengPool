@@ -424,16 +424,6 @@ function _resolveGameover(gameId, room, winnerNum, originalMsg) {
   const loserAddr  = winnerNum === 1 ? room.p2addr : room.p1addr;
   const ZERO = "0x0000000000000000000000000000000000000000";
 
-  // Record PvP result in DB for both players (fire-and-forget)
-  if (winnerAddr && winnerAddr !== ZERO) {
-    db.recordGameResult(winnerAddr, true).catch(e =>
-      console.error(`[db] game-result winner P${winnerNum}:`, e.message));
-  }
-  if (loserAddr && loserAddr !== ZERO) {
-    db.recordGameResult(loserAddr, false).catch(e =>
-      console.error(`[db] game-result loser:`, e.message));
-  }
-
   if (!winnerAddr || winnerAddr === ZERO) {
     console.warn(`[settle] game ${gameId}: no address for winner P${winnerNum}`);
     return;
@@ -442,7 +432,24 @@ function _resolveGameover(gameId, room, winnerNum, originalMsg) {
   // Tournament rooms: route to tournament handler, skip PvP settlement
   if (room.isTournament) {
     tournament.handleMatchResult(String(gameId), winnerAddr, loserAddr);
+    // XP only for paid tournaments (free tournaments have no stake)
+    if (Number(room.betUSD) > 0) {
+      if (winnerAddr && winnerAddr !== ZERO)
+        db.recordGameResult(winnerAddr, true).catch(e => console.error(`[db] game-result winner:`, e.message));
+      if (loserAddr && loserAddr !== ZERO)
+        db.recordGameResult(loserAddr, false).catch(e => console.error(`[db] game-result loser:`, e.message));
+    }
     return;
+  }
+
+  // PvP — always grant XP
+  if (winnerAddr && winnerAddr !== ZERO) {
+    db.recordGameResult(winnerAddr, true).catch(e =>
+      console.error(`[db] game-result winner P${winnerNum}:`, e.message));
+  }
+  if (loserAddr && loserAddr !== ZERO) {
+    db.recordGameResult(loserAddr, false).catch(e =>
+      console.error(`[db] game-result loser:`, e.message));
   }
 
   room.winnerNum = winnerNum;
@@ -699,6 +706,15 @@ const httpServer = http.createServer(async (req, res) => {
     const _ip = _clientIp(req);
     if (!_limitGeneral(_ip)) {
       _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return;
+    }
+
+    // ── public config (contract addresses for client) ────────────────────────
+    if (req.method === "GET" && req.url === "/api/config") {
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS });
+      res.end(JSON.stringify({
+        tournamentAddress: process.env.TOURNAMENT_ADDRESS || "0x03F938697Ec69232426a5B82187Ef2c7BF561dEF",
+      }));
+      return;
     }
 
     // ── existing alias endpoints ──────────────────────────────────────────────
@@ -1406,16 +1422,23 @@ wss.on("connection", (ws, req) => {
       const _leaveWinAddr = winnerNum === 1 ? room.p1addr : room.p2addr;
       const _leaveLoserAddr = winnerNum === 1 ? room.p2addr : room.p1addr;
       const ZERO = "0x0000000000000000000000000000000000000000";
-      if (_leaveWinAddr && _leaveWinAddr !== ZERO)
-        db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
-      if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
-        db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
       pendingMatches.delete(room.p1addr?.toLowerCase());
       pendingMatches.delete(room.p2addr?.toLowerCase());
       if (_leaveWinAddr && _leaveWinAddr !== ZERO) {
         if (room.isTournament) {
           tournament.handleMatchResult(ws._gameId, _leaveWinAddr, _leaveLoserAddr);
+          // XP only for paid tournaments
+          if (Number(room.betUSD) > 0) {
+            if (_leaveWinAddr !== ZERO)
+              db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
+            if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
+              db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
+          }
         } else {
+          // PvP — always grant XP
+          db.recordGameResult(_leaveWinAddr, true).catch(e => console.error(`[db] leave winner:`, e.message));
+          if (_leaveLoserAddr && _leaveLoserAddr !== ZERO)
+            db.recordGameResult(_leaveLoserAddr, false).catch(e => console.error(`[db] leave loser:`, e.message));
           room.winnerNum = winnerNum;
           _settle(ws._gameId, _leaveWinAddr, room);
         }

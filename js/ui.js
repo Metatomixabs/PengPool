@@ -885,7 +885,7 @@ async function _tLoadList() {
       const start = new Date(t.start_time).toLocaleString();
       return `<div class="t-card" onclick="_tOpenDetail(${t.id})">
         <div class="t-card-name">${t.name}</div>
-        <div class="t-card-meta">Buy-in: <b>$${t.buy_in_usd}</b> · ${t.participant_count} players · ${start}</div>
+        <div class="t-card-meta">Buy-in: <b>${t.buy_in_usd > 0 ? '$' + t.buy_in_usd : 'FREE'}</b> · ${t.participant_count} players · ${start}</div>
         <div class="t-card-status t-status-${t.status}">${t.status.toUpperCase()}</div>
       </div>`;
     }).join('');
@@ -926,7 +926,7 @@ function _tRenderDetail(t) {
     const start = new Date(t.start_time).toLocaleString();
     const pool  = t.prize_pool_eth ? Number(t.prize_pool_eth).toFixed(6) + ' ETH' : '—';
     metaEl.innerHTML = `
-      <div class="t-detail-row"><span>Buy-in</span><b>$${t.buy_in_usd}</b></div>
+      <div class="t-detail-row"><span>Buy-in</span><b>${t.buy_in_usd > 0 ? '$' + t.buy_in_usd : 'FREE'}</b></div>
       <div class="t-detail-row"><span>Players</span><b>${t.participant_count}</b></div>
       <div class="t-detail-row"><span>Prize pool</span><b>${pool}</b></div>
       <div class="t-detail-row"><span>Start</span><b>${start}</b></div>
@@ -2618,3 +2618,13 @@ function _chatAppend(from, text, isSelf, extraClass) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') _sendChat(); });
   btn.addEventListener('click', _sendChat);
 }());
+
+// ── FETCH CONTRACT CONFIG FROM SERVER ────────────────────────────────────────
+fetch(HTTP_URL + '/api/config')
+  .then(function(r) { return r.json(); })
+  .then(function(cfg) {
+    if (cfg.tournamentAddress && window.PengPoolWeb3) {
+      window.PengPoolWeb3.setTournamentAddress(cfg.tournamentAddress);
+    }
+  })
+  .catch(function(e) { console.warn('[config] failed to fetch /api/config:', e.message); });
