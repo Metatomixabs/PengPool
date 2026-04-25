@@ -2,4 +2,4 @@
 buildCommand = "npm install --legacy-peer-deps"
 
 [deploy]
-startCommand = "node server/server.js"
+startCommand = "node server.js"
