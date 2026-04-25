@@ -21,7 +21,7 @@
 
   var PENGPOOL_ADDRESS  = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
   // Populated at startup by ui.js via /api/config; fallback to last known address
-  var _tournamentAddr   = "0xb1176E38C4Dd1416b71a818d1A7601fcCee6f581";
+  var _tournamentAddr   = "0x91b382aB2644D3B52b52fcCc4633550D0C90dd43";
 
   var TABLE_NFT_ADDRESS = "0x84f038171F43c065d28A47bb1E15f33a4C7BF455";
   var TABLE_NFT_ABI = [
@@ -468,6 +468,57 @@
         _notifyServer(bufferedWei.toString());
         return tx;
       }).catch(function(err) { _fail("registerTournament", err); });
+    },
+    // unregisterTournament(chainTournamentId) — withdraw from a tournament before it starts
+    unregisterTournament: function(chainTournamentId) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ABI_LOCAL = [
+        { name: "unregisterPlayer", type: "function", stateMutability: "nonpayable",
+          inputs: [{ name: "tournamentId", type: "uint256" }], outputs: [] },
+        { name: "playerDeposits", type: "function", stateMutability: "view",
+          inputs: [{ name: "", type: "uint256" }, { name: "", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+      ];
+      var httpUrl = window.location.hostname === 'localhost'
+        ? 'http://localhost:8080'
+        : 'https://pengpool-production.up.railway.app';
+      var tAddr = _tournamentAddr;
+      var depositWei = null;
+      return _ensurePub().then(function(pub) {
+        return pub.readContract({
+          address: tAddr, abi: TOURNAMENT_ABI_LOCAL,
+          functionName: "playerDeposits", args: [BigInt(chainTournamentId), _agw],
+        });
+      }).then(function(wei) {
+        depositWei = wei;
+        return _abs.writeContract({
+          address: tAddr, abi: TOURNAMENT_ABI_LOCAL,
+          functionName: "unregisterPlayer",
+          args: [BigInt(chainTournamentId)],
+        });
+      }).then(function(tx) {
+        console.log("[PengPool] unregisterTournament tx:", tx);
+        fetch(httpUrl + '/api/tournament/unregister-participant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tournamentId: chainTournamentId, playerAddr: _agw, ethAmount: depositWei ? depositWei.toString() : '0' }),
+        }).catch(function(e) { console.warn('[tournament] unregister-participant notify failed:', e.message); });
+        return tx;
+      }).catch(function(err) { _fail("unregisterTournament", err); });
+    },
+    // withdrawCancelledDeposit(chainTournamentId) — recover deposit from a cancelled tournament
+    withdrawCancelledDeposit: function(chainTournamentId) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ABI_LOCAL = [
+        { name: "withdrawCancelledDeposit", type: "function", stateMutability: "nonpayable",
+          inputs: [{ name: "tournamentId", type: "uint256" }], outputs: [] },
+      ];
+      return _abs.writeContract({
+        address: _tournamentAddr, abi: TOURNAMENT_ABI_LOCAL,
+        functionName: "withdrawCancelledDeposit",
+        args: [BigInt(chainTournamentId)],
+      }).then(function(tx) {
+        console.log("[PengPool] withdrawCancelledDeposit tx:", tx); return tx;
+      }).catch(function(err) { _fail("withdrawCancelledDeposit", err); });
     },
     // claimTournamentPrize(chainTournamentId) — claim prize after tournament finishes
     claimTournamentPrize: function(chainTournamentId) {

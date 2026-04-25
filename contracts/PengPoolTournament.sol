@@ -34,7 +34,7 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
 
     uint256 public constant COMMISSION_BPS = 1000;  // 10%
     uint256 public constant SLIPPAGE_BPS   = 200;   // 2%
-    uint256 public constant CLAIM_EXPIRY   = 24 hours;
+    uint256 public constant CLAIM_EXPIRY   = 7 days;
     uint256 public constant MAX_PRICE_AGE  = 3600;  // 1 hour
 
     // -------------------------------------------------------------------------
@@ -89,6 +89,18 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
         uint256 amount
     );
     event ExpiredPrizeClaimed(
+        uint256 indexed tournamentId,
+        address indexed player,
+        uint256 amount
+    );
+    event PlayerUnregistered(
+        uint256 indexed tournamentId,
+        address indexed player
+    );
+    event TournamentCancelled(
+        uint256 indexed tournamentId
+    );
+    event DepositWithdrawn(
         uint256 indexed tournamentId,
         address indexed player,
         uint256 amount
@@ -211,6 +223,88 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
         t.prizePoolETH += msg.value;
 
         emit PlayerRegistered(tournamentId, msg.sender, msg.value);
+    }
+
+    // -------------------------------------------------------------------------
+    // Player unregistration
+    // -------------------------------------------------------------------------
+
+    /// @notice Unregister from a tournament before it starts, recovering the deposit.
+    ///         Registration must still be open and the tournament cannot start in the
+    ///         next 5 minutes (to prevent last-second griefing).
+    /// @param tournamentId ID of the tournament to leave.
+    function unregisterPlayer(uint256 tournamentId) external nonReentrant {
+        Tournament storage t = tournaments[tournamentId];
+        require(
+            t.status == TournamentStatus.REGISTRATION,
+            "PengPoolTournament: tournament is not open for registration"
+        );
+        require(
+            block.timestamp < t.startTime - 5 minutes,
+            "PengPoolTournament: too close to start time"
+        );
+        require(
+            isRegistered[tournamentId][msg.sender],
+            "PengPoolTournament: player not registered"
+        );
+
+        uint256 deposit = playerDeposits[tournamentId][msg.sender];
+
+        // CEI
+        isRegistered[tournamentId][msg.sender]   = false;
+        playerDeposits[tournamentId][msg.sender] = 0;
+        t.participantCount--;
+        if (t.prizePoolETH >= deposit) t.prizePoolETH -= deposit;
+
+        if (deposit > 0) {
+            (bool sent, ) = msg.sender.call{value: deposit}("");
+            require(sent, "PengPoolTournament: refund transfer failed");
+        }
+
+        emit PlayerUnregistered(tournamentId, msg.sender);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tournament cancellation — owner only
+    // -------------------------------------------------------------------------
+
+    /// @notice Cancel a tournament that has not yet started. Deposits remain locked
+    ///         until each player calls withdrawCancelledDeposit().
+    ///         Only callable within the registration window (5+ minutes before start).
+    /// @param tournamentId ID of the tournament to cancel.
+    function cancelTournament(uint256 tournamentId) external onlyOwner {
+        Tournament storage t = tournaments[tournamentId];
+        require(
+            t.status == TournamentStatus.REGISTRATION,
+            "PengPoolTournament: tournament is not in registration status"
+        );
+        require(
+            block.timestamp < t.startTime - 5 minutes,
+            "PengPoolTournament: too close to start time to cancel"
+        );
+
+        t.status = TournamentStatus.CANCELLED;
+
+        emit TournamentCancelled(tournamentId);
+    }
+
+    /// @notice Withdraw a deposit from a cancelled tournament. Called by the player.
+    /// @param tournamentId ID of the cancelled tournament.
+    function withdrawCancelledDeposit(uint256 tournamentId) external nonReentrant {
+        require(
+            tournaments[tournamentId].status == TournamentStatus.CANCELLED,
+            "PengPoolTournament: tournament is not cancelled"
+        );
+
+        uint256 deposit = playerDeposits[tournamentId][msg.sender];
+        require(deposit > 0, "PengPoolTournament: no deposit to withdraw");
+
+        playerDeposits[tournamentId][msg.sender] = 0;
+
+        (bool sent, ) = msg.sender.call{value: deposit}("");
+        require(sent, "PengPoolTournament: withdrawal transfer failed");
+
+        emit DepositWithdrawn(tournamentId, msg.sender, deposit);
     }
 
     // -------------------------------------------------------------------------

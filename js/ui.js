@@ -144,7 +144,8 @@ function _connectNotifWs(addr) {
         toast('Opponent did not join — you advance! 🏆', 0);
       }
     }
-    else if (msg.type === 'tournament_finished') _tOnFinished(msg);
+    else if (msg.type === 'tournament_finished')   _tOnFinished(msg);
+    else if (msg.type === 'tournament_cancelled')  _tOnCancelled(msg);
   };
   _notifWs.onerror = () => console.warn('[notifWs] error');
   _notifWs.onclose = (evt) => {
@@ -847,6 +848,7 @@ function _wsOnMessage(msg) {
   }
   else if (msg.type === 'tournament_finished')       { _tOnFinished(msg); }
   else if (msg.type === 'tournament_prize_available'){ _tOnPrizeAvailable(msg); }
+  else if (msg.type === 'tournament_cancelled')      { _tOnCancelled(msg); }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -964,15 +966,31 @@ function _tRenderDetail(t) {
     }
   }
 
+  const w = window.PengPoolWeb3;
+  const myAddr = w?.getAddress?.()?.toLowerCase();
+  const isRegistered = myAddr && t.participants && t.participants.some(p => p.player_addr.toLowerCase() === myAddr);
+  const startMs = t.start_time ? new Date(t.start_time).getTime() : Infinity;
+  const canUnregister = isRegistered && t.status === 'registration' && Date.now() < startMs - 5 * 60 * 1000;
+  const isCreator = myAddr && t.creator_addr && t.creator_addr.toLowerCase() === myAddr;
+  const canCancel = isCreator && t.status === 'registration' && Date.now() < startMs - 5 * 60 * 1000;
+  const canRefund = t.status === 'cancelled' && isRegistered && t.buy_in_usd > 0;
+
   const btnReg = document.getElementById('tBtnRegister');
   if (btnReg) {
-    const w = window.PengPoolWeb3;
-    const myAddr = w?.getAddress?.()?.toLowerCase();
-    const isRegistered = myAddr && t.participants && t.participants.some(p => p.player_addr.toLowerCase() === myAddr);
-    const canRegister  = t.status === 'registration';
+    const canRegister = t.status === 'registration' && !isRegistered && Date.now() < startMs;
     btnReg.textContent = isRegistered ? 'REGISTERED ✓' : 'REGISTER';
-    btnReg.disabled    = isRegistered || !canRegister;
+    btnReg.disabled    = !canRegister;
+    btnReg.style.display = (t.status === 'registration' && !canUnregister) ? '' : 'none';
   }
+
+  const btnUnreg = document.getElementById('tBtnUnregister');
+  if (btnUnreg) btnUnreg.style.display = canUnregister ? '' : 'none';
+
+  const btnCancel = document.getElementById('tBtnCancel');
+  if (btnCancel) btnCancel.style.display = canCancel ? '' : 'none';
+
+  const btnRefund = document.getElementById('tBtnRefund');
+  if (btnRefund) btnRefund.style.display = canRefund ? '' : 'none';
 }
 
 async function _tRegister() {
@@ -988,6 +1006,63 @@ async function _tRegister() {
   } catch(e) {
     toast('Registration failed: ' + (e?.message || '').replace('[PengPool] ',''), 1);
     if (btnReg) { btnReg.disabled = false; btnReg.textContent = 'REGISTER'; }
+  }
+}
+
+async function _tUnregister() {
+  if (!_tDetailId || !_tDetailData) return;
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const btn = document.getElementById('tBtnUnregister');
+  if (btn) { btn.disabled = true; btn.textContent = 'Unregistering…'; }
+  try {
+    await w.unregisterTournament(_tDetailData.chain_id);
+    toast('Unregistered. Deposit refunded.');
+    await _tRefreshDetail();
+  } catch(e) {
+    toast('Unregister failed: ' + (e?.message || '').replace('[PengPool] ',''), 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'UNREGISTER'; }
+  }
+}
+
+async function _tCancelTournament() {
+  if (!_tDetailId || !_tDetailData) return;
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const token = _getSessionToken();
+  if (!token) { toast('Session expired — reconnect wallet', 1); return; }
+  if (!confirm('Cancel this tournament? All deposits will be refundable by participants.')) return;
+  const btn = document.getElementById('tBtnCancel');
+  if (btn) { btn.disabled = true; btn.textContent = 'Cancelling…'; }
+  try {
+    const res = await fetch(HTTP_URL + '/api/tournament/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tournamentId: _tDetailId, playerAddr: w.getAddress(), sessionToken: token }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Cancel failed');
+    toast('Tournament cancelled. Participants can claim refunds.');
+    await _tRefreshDetail();
+  } catch(e) {
+    toast('Cancel failed: ' + (e?.message || ''), 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'CANCEL TOURNAMENT'; }
+  }
+}
+
+async function _tClaimRefund() {
+  if (!_tDetailId || !_tDetailData) return;
+  const w = window.PengPoolWeb3;
+  if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
+  const btn = document.getElementById('tBtnRefund');
+  if (btn) { btn.disabled = true; btn.textContent = 'Claiming…'; }
+  try {
+    await w.withdrawCancelledDeposit(_tDetailData.chain_id);
+    toast('Refund claimed!');
+    await _tRefreshDetail();
+  } catch(e) {
+    toast('Refund failed: ' + (e?.message || '').replace('[PengPool] ',''), 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'CLAIM REFUND'; }
   }
 }
 
@@ -1017,6 +1092,11 @@ function _tOnMatchReady(msg) {
 
 function _tOnFinished(msg) {
   toast('Tournament #' + msg.tournamentId + ' has finished!', 0);
+  if (_tDetailId && String(_tDetailId) === String(msg.tournamentId)) _tRefreshDetail();
+}
+
+function _tOnCancelled(msg) {
+  toast('Tournament #' + msg.tournamentId + ' was cancelled. Deposits are refundable.', 1);
   if (_tDetailId && String(_tDetailId) === String(msg.tournamentId)) _tRefreshDetail();
 }
 
@@ -1881,6 +1961,9 @@ document.getElementById('btnGuide').addEventListener('click',()=>{guideOn=!guide
     _tLoadList();
   });
   document.getElementById('tBtnRegister').addEventListener('click', _tRegister);
+  document.getElementById('tBtnUnregister').addEventListener('click', _tUnregister);
+  document.getElementById('tBtnCancel').addEventListener('click', _tCancelTournament);
+  document.getElementById('tBtnRefund').addEventListener('click', _tClaimRefund);
   document.getElementById('tBtnClaim').addEventListener('click', _tClaimPrize);
   document.getElementById('tBtnPrizeLater').addEventListener('click', function() {
     document.getElementById('tPrizeModal').classList.remove('on');

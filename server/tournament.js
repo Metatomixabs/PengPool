@@ -7,7 +7,7 @@ const cron        = require("node-cron");
 // Contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOURNAMENT_ADDRESS = process.env.TOURNAMENT_ADDRESS || "0xb1176E38C4Dd1416b71a818d1A7601fcCee6f581";
+const TOURNAMENT_ADDRESS = process.env.TOURNAMENT_ADDRESS || "0x91b382aB2644D3B52b52fcCc4633550D0C90dd43";
 
 const TOURNAMENT_ABI = [
   "function createTournament(string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator) external returns (uint256)",
@@ -17,7 +17,10 @@ const TOURNAMENT_ABI = [
   "function expiredPrizeClaim(uint256 tournamentId, address player) external",
   "function getTournamentInfo(uint256 tournamentId) external view returns (string name, uint256 buyInUSD, uint256 startTime, uint8 status, uint256 participantCount, uint256 prizePool, bool isCustom, address creator)",
   "function getPendingPrize(uint256 tournamentId, address player) external view returns (uint256)",
+  "function cancelTournament(uint256 tournamentId) external",
+  "function playerDeposits(uint256 tournamentId, address player) external view returns (uint256)",
   "event TournamentCreated(uint256 indexed tournamentId, string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator)",
+  "event TournamentCancelled(uint256 indexed tournamentId)",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +94,23 @@ function _broadcast(obj) {
   const raw = JSON.stringify(obj);
   for (const ws of _wss.clients) {
     if (ws.readyState === 1) ws.send(raw);
+  }
+}
+
+/** Verify a session token against the DB. Returns true iff token is valid and belongs to expectedAddr. */
+async function _verifySessionToken(token, expectedAddr) {
+  if (!token || !expectedAddr) return false;
+  try {
+    const { rows: [row] } = await _pool.query(
+      "SELECT addr, expires_at FROM session_tokens WHERE token = $1",
+      [token]
+    );
+    if (!row) return false;
+    if (new Date(row.expires_at) < new Date()) return false;
+    return row.addr.toLowerCase() === expectedAddr.toLowerCase();
+  } catch (e) {
+    console.error('[tournament] _verifySessionToken error:', e.message);
+    return false;
   }
 }
 
@@ -1048,6 +1068,107 @@ const httpRoutes = [
         _json(res, 200, { ok: true });
       } catch(e) {
         console.error('[tournament] register-participant error:', e.message);
+        _json(res, 500, { error: e.message });
+      }
+    },
+  },
+
+  // POST /api/tournament/cancel
+  {
+    match: (method, url) => method === 'POST' && url === '/api/tournament/cancel',
+    handler: async (req, res) => {
+      try {
+        const body = JSON.parse(await _readBody(req));
+        const { tournamentId, playerAddr, sessionToken } = body;
+        if (!tournamentId || !playerAddr || !sessionToken) {
+          return _json(res, 400, { error: 'Missing fields' });
+        }
+
+        // Verify session token belongs to requester
+        const valid = await _verifySessionToken(sessionToken, playerAddr);
+        if (!valid) return _json(res, 401, { error: 'Invalid or expired session token' });
+
+        // Load tournament by DB id
+        const { rows: [t] } = await _pool.query(
+          "SELECT id, chain_id, status, creator_addr, start_time FROM tournaments WHERE id = $1",
+          [tournamentId]
+        );
+        if (!t) return _json(res, 404, { error: 'Tournament not found' });
+
+        // Only the creator can cancel
+        if (!t.creator_addr || t.creator_addr.toLowerCase() !== playerAddr.toLowerCase()) {
+          return _json(res, 403, { error: 'Only the tournament creator can cancel' });
+        }
+        if (t.status !== 'registration') {
+          return _json(res, 400, { error: 'Tournament is not in registration phase' });
+        }
+        const startMs = new Date(t.start_time).getTime();
+        if (Date.now() > startMs - 5 * 60 * 1000) {
+          return _json(res, 400, { error: 'Too close to start time to cancel (must be 5+ min before)' });
+        }
+
+        // Call contract
+        try {
+          const tx = await _getContract().cancelTournament(BigInt(t.chain_id));
+          await tx.wait();
+        } catch (e) {
+          console.error('[tournament] cancelTournament contract error:', e.message);
+          return _json(res, 500, { error: 'Contract call failed: ' + e.message });
+        }
+
+        // Update DB
+        await _pool.query("UPDATE tournaments SET status = 'cancelled' WHERE id = $1", [t.id]);
+
+        // Broadcast WS
+        if (_wss) {
+          const msg = JSON.stringify({ type: 'tournament_cancelled', tournamentId: t.id, chainId: t.chain_id });
+          _wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+        }
+
+        console.log('[tournament] cancelled tournament id=%d chain_id=%d by %s', t.id, t.chain_id, playerAddr);
+        _json(res, 200, { ok: true });
+      } catch(e) {
+        console.error('[tournament] cancel error:', e.message);
+        _json(res, 500, { error: e.message });
+      }
+    },
+  },
+
+  // POST /api/tournament/unregister-participant
+  {
+    match: (method, url) => method === 'POST' && url === '/api/tournament/unregister-participant',
+    handler: async (req, res) => {
+      try {
+        const body = JSON.parse(await _readBody(req));
+        const { tournamentId, playerAddr, ethAmount } = body;
+        if (!tournamentId || !playerAddr) return _json(res, 400, { error: 'Missing fields' });
+
+        // Find by chain_id in registration phase
+        const { rows: [t] } = await _pool.query(
+          "SELECT id FROM tournaments WHERE chain_id = $1 AND status = 'registration'",
+          [tournamentId]
+        );
+        if (!t) return _json(res, 404, { error: 'Tournament not found' });
+
+        // Remove participant
+        await _pool.query(
+          "DELETE FROM tournament_participants WHERE tournament_id = $1 AND player_addr = LOWER($2)",
+          [t.id, playerAddr]
+        );
+
+        // Update count and prize pool
+        const refundEth = (Number(ethAmount) / 1e18);
+        await _pool.query(
+          `UPDATE tournaments
+           SET participant_count = (SELECT COUNT(*) FROM tournament_participants WHERE tournament_id = $1),
+               prize_pool_eth = GREATEST(0, prize_pool_eth - $2)
+           WHERE id = $1`,
+          [t.id, refundEth.toFixed(18)]
+        );
+
+        _json(res, 200, { ok: true });
+      } catch(e) {
+        console.error('[tournament] unregister-participant error:', e.message);
         _json(res, 500, { error: e.message });
       }
     },
