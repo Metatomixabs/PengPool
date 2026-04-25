@@ -431,7 +431,8 @@ function _resolveGameover(gameId, room, winnerNum, originalMsg) {
 
   // Tournament rooms: route to tournament handler, skip PvP settlement
   if (room.isTournament) {
-    tournament.handleMatchResult(String(gameId), winnerAddr, loserAddr);
+    tournament.handleMatchResult(String(gameId), winnerAddr, loserAddr)
+      .catch(e => console.error(`[tournament] handleMatchResult unhandled: ${e.message}`));
     // XP only for paid tournaments (free tournaments have no stake)
     if (Number(room.betUSD) > 0) {
       if (winnerAddr && winnerAddr !== ZERO)
@@ -935,7 +936,12 @@ const httpServer = http.createServer(async (req, res) => {
     // Tournament routes
     for (const route of tournament.httpRoutes) {
       if (route.match(req.method, req.url)) {
-        await route.handler(req, res);
+        try {
+          await route.handler(req, res);
+        } catch (e) {
+          console.error(`[tournament] HTTP handler error (${req.url}):`, e.message);
+          _safeEnd(500, { "Content-Type": "application/json", ...CORS }, JSON.stringify({ error: e.message }));
+        }
         return;
       }
     }

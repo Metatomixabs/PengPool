@@ -872,7 +872,7 @@ async function _tLoadList() {
       : HTTP_URL + '/api/tournaments';
     const res  = await fetch(endpoint);
     const data = await res.json();
-    if (!Array.isArray(data)) { list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>'; return; }
+    if (!Array.isArray(data)) { console.warn('[tournament] unexpected response:', data); list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>'; return; }
 
     const statusFilter = { open: 'registration', active: 'active', finished: 'finished' };
     const filtered = data.filter(t => t.status === statusFilter[_tCurrentTab]);
@@ -890,6 +890,7 @@ async function _tLoadList() {
       </div>`;
     }).join('');
   } catch(e) {
+    console.error('[tournament] _tLoadList failed:', e.message);
     list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>';
   }
 }
