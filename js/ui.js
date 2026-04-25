@@ -1021,7 +1021,7 @@ function _tOnFinished(msg) {
 }
 
 function _tOnPrizeAvailable(msg) {
-  _tPendingChainId = msg.tournamentId; // will be resolved to chain_id when claiming
+  _tPendingChainId = msg.chainId ?? msg.tournamentId; // chainId = on-chain id needed by claimPrize()
   const modal = document.getElementById('tPrizeModal');
   if (!modal) return;
   const prizeEth = msg.estimatedPrizeETH ? Number(msg.estimatedPrizeETH).toFixed(6) + ' ETH' : '—';

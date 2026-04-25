@@ -755,6 +755,7 @@ async function finalizeTournament(tournamentDbId) {
       _sendToAddr(entry.addr, {
         type:              "tournament_prize_available",
         tournamentId:      tournamentDbId,
+        chainId:           t.chain_id,
         position:          entry.position,
         estimatedPrizeETH: entry.prizeETH,
       });
