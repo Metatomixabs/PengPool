@@ -945,11 +945,15 @@ function _tRenderDetail(t) {
             const w1 = m.winner_addr && m.winner_addr === m.player1_addr;
             const w2 = m.winner_addr && m.winner_addr === m.player2_addr;
             const winnerName = m.winner_addr ? (m.winner_alias || shortenAddr(m.winner_addr)) : '';
+            const watchBtn = (m.status === 'active' && m.room_id)
+              ? `<button class="t-match-watch" onclick="_watchGame('${m.room_id}')">WATCH</button>`
+              : '';
             return `<div class="t-match t-match-${m.status}">
               <span class="${w1?'t-winner':''}">${p1}</span>
               <span class="t-match-vs">vs</span>
               <span class="${w2?'t-winner':''}">${p2}</span>
               ${winnerName ? `<span class="t-match-result">→ ${winnerName}</span>` : ''}
+              ${watchBtn}
             </div>`;
           }).join('')}
         </div>`;

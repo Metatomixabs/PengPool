@@ -2391,6 +2391,10 @@ canvas {
 .t-match-vs       { color:#444; font-size:.65rem; }
 .t-match-result   { width:100%; font-size:.65rem; color:var(--g); margin-top:2px; }
 .t-winner         { color:var(--g); font-weight:700; }
+.t-match-watch    { margin-left:auto; padding:3px 10px; border-radius:5px; border:1px solid rgba(0,201,81,.4);
+                    background:rgba(0,201,81,.08); color:#00c951; font-family:'Space Mono',monospace;
+                    font-size:.6rem; cursor:pointer; letter-spacing:1px; }
+.t-match-watch:hover { background:rgba(0,201,81,.22); }
 
 /* ── Zoom control ── */
 #zoom-ctrl {

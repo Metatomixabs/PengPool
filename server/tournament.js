@@ -825,10 +825,29 @@ async function _getBracket(tournamentDbId) {
     [tournamentDbId]
   );
 
+  // Resolve usernames for all addresses in the bracket in one query
+  const addrs = [...new Set(
+    rows.flatMap(m => [m.player1_addr, m.player2_addr, m.winner_addr].filter(Boolean).map(a => a.toLowerCase()))
+  )];
+  const aliasMap = {};
+  if (addrs.length) {
+    const { rows: players } = await _pool.query(
+      `SELECT LOWER(wallet) AS addr, username FROM players WHERE LOWER(wallet) = ANY($1)`,
+      [addrs]
+    );
+    for (const p of players) if (p.username) aliasMap[p.addr] = p.username;
+  }
+  const _alias = addr => addr ? (aliasMap[addr.toLowerCase()] || null) : null;
+
   const rounds = {};
   for (const m of rows) {
     if (!rounds[m.round]) rounds[m.round] = [];
-    rounds[m.round].push(m);
+    rounds[m.round].push({
+      ...m,
+      player1_alias: _alias(m.player1_addr),
+      player2_alias: _alias(m.player2_addr),
+      winner_alias:  _alias(m.winner_addr),
+    });
   }
 
   return Object.entries(rounds)
