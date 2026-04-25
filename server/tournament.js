@@ -924,8 +924,14 @@ const httpRoutes = [
       );
       if (!t) return _json(res, 404, { error: "Tournament not found" });
 
-      const bracket = await _getBracket(id);
-      _json(res, 200, { ...t, bracket });
+      const [bracket, { rows: participants }] = await Promise.all([
+        _getBracket(id),
+        _pool.query(
+          "SELECT player_addr, final_position FROM tournament_participants WHERE tournament_id = $1",
+          [id]
+        ),
+      ]);
+      _json(res, 200, { ...t, bracket, participants });
     },
   },
 
