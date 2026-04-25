@@ -1153,9 +1153,12 @@ async function _tSubmitCreate() {
   try {
     const startTimeUnix = Math.floor(new Date(`${dateVal}T${timeVal}`).getTime() / 1000);
     await w.createTournament(name, buyIn, startTimeUnix, _getSessionToken());
-    toast('Tournament created!');
+    toast('Tournament created! It will appear in a few seconds.');
+    if (btn) { btn.disabled = false; btn.textContent = 'CREATE'; }
     document.getElementById('tForm').style.display = 'none';
     _tShowTab('open');
+    // Refresh list after background sync-create completes (~5s after tx)
+    setTimeout(function() { _tLoadList(); }, 6000);
   } catch(e) {
     toast('Create failed: ' + (e?.message || '').replace('[PengPool] ', ''), 1);
     if (btn) { btn.disabled = false; btn.textContent = 'CREATE'; }

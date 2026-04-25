@@ -1104,11 +1104,20 @@ const httpRoutes = [
         if (!valid) return _json(res, 401, { error: 'Invalid or expired session token' });
 
         // Verify on-chain: tournament exists and creator matches
+        // Retry up to 5×2s because client fires this request before the tx confirms
         let info;
-        try {
-          info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
-        } catch (e) {
-          return _json(res, 400, { error: 'Tournament not found on-chain: ' + e.message });
+        {
+          let lastErr;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
+              break;
+            } catch (e) {
+              lastErr = e;
+              if (attempt < 4) await new Promise(r => setTimeout(r, 2000));
+            }
+          }
+          if (!info) return _json(res, 400, { error: 'Tournament not found on-chain after retries: ' + lastErr.message });
         }
         if (info.creator.toLowerCase() !== creatorAddr.toLowerCase()) {
           return _json(res, 403, { error: 'On-chain creator does not match' });
@@ -1160,15 +1169,20 @@ const httpRoutes = [
         if (!valid) return _json(res, 401, { error: 'Invalid or expired session token' });
 
         // Verify on-chain that tournament is now CANCELLED (status 3)
+        // Retry up to 5×2s because client fires this request immediately after signing
         let info;
-        try {
-          info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
-        } catch (e) {
-          return _json(res, 400, { error: 'Could not read on-chain status: ' + e.message });
-        }
-        // status: 0=REGISTRATION, 1=ACTIVE, 2=FINISHED, 3=CANCELLED
-        if (Number(info.status) !== 3) {
-          return _json(res, 400, { error: 'Tournament is not CANCELLED on-chain' });
+        {
+          let lastErr;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
+              // status: 0=REGISTRATION, 1=ACTIVE, 2=FINISHED, 3=CANCELLED
+              if (Number(info.status) === 3) break;
+            } catch (e) { lastErr = e; }
+            if (attempt < 4) await new Promise(r => setTimeout(r, 2000));
+          }
+          if (!info) return _json(res, 400, { error: 'Could not read on-chain status: ' + (lastErr?.message || 'unknown') });
+          if (Number(info.status) !== 3) return _json(res, 400, { error: 'Tournament is not CANCELLED on-chain after retries' });
         }
 
         // Find DB record by chain_id
