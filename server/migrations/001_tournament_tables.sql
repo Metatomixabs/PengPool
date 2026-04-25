@@ -6,7 +6,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE tournaments (
     id                SERIAL PRIMARY KEY,
-    chain_id          INTEGER      NOT NULL UNIQUE,
+    chain_id          INTEGER      NOT NULL,
     name              VARCHAR(100) NOT NULL,
     type              VARCHAR(10)  NOT NULL CHECK (type IN ('regular', 'custom')),
     creator_addr      VARCHAR(42)  NOT NULL,
@@ -55,6 +55,9 @@ CREATE TABLE tournament_matches (
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Indexes
 -- ─────────────────────────────────────────────────────────────────────────────
+CREATE UNIQUE INDEX tournaments_chain_id_active_unique
+    ON tournaments(chain_id)
+    WHERE status NOT IN ('finished', 'cancelled');
 CREATE INDEX idx_tournaments_status             ON tournaments(status);
 CREATE INDEX idx_tournaments_start_time         ON tournaments(start_time);
 CREATE INDEX idx_participants_tournament_id     ON tournament_participants(tournament_id);
