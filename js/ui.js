@@ -935,14 +935,11 @@ function _tRenderDetail(t) {
 
   const bracketEl = document.getElementById('tBracket');
   if (bracketEl) {
-    if (t.matches && t.matches.length > 0) {
-      const rounds = {};
-      t.matches.forEach(m => { if (!rounds[m.round]) rounds[m.round] = []; rounds[m.round].push(m); });
-      bracketEl.innerHTML = Object.keys(rounds).sort((a,b)=>a-b).map(r => {
-        const ms = rounds[r];
+    if (t.bracket && t.bracket.length > 0) {
+      bracketEl.innerHTML = t.bracket.map(({ round, matches }) => {
         return `<div class="t-round">
-          <div class="t-round-label">Round ${r}</div>
-          ${ms.map(m => {
+          <div class="t-round-label">Round ${round}</div>
+          ${matches.map(m => {
             const p1 = m.player1_alias || shortenAddr(m.player1_addr || '') || 'TBD';
             const p2 = m.is_bye ? 'BYE' : (m.player2_alias || shortenAddr(m.player2_addr || '') || 'TBD');
             const w1 = m.winner_addr && m.winner_addr === m.player1_addr;
