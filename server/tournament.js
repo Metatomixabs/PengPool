@@ -278,6 +278,25 @@ function initTournament(wss, pool, wallet, provider, rooms) {
     } catch (e) {
       console.error("[tournament cron] safety-net check failed:", e.message);
     }
+
+    // 4. Safety-net: cancel active tournaments where a match has been 'active' for >60 min
+    //    without a winner (server restart lost the room, match can never resolve).
+    try {
+      const { rows: ghostMatches } = await _pool.query(
+        `SELECT DISTINCT m.tournament_id AS id FROM tournament_matches m
+         WHERE m.status = 'active'
+           AND m.winner_addr IS NULL
+           AND m.created_at <= NOW() - INTERVAL '60 minutes'`
+      );
+      for (const { id } of ghostMatches) {
+        console.log(`[tournament cron] cancelling tournament ${id} with ghost active match`);
+        await _pool.query(`UPDATE tournaments SET status = 'cancelled' WHERE id = $1 AND status = 'active'`, [id]);
+        await _pool.query(`UPDATE tournament_matches SET status = 'finished' WHERE tournament_id = $1 AND status = 'active' AND winner_addr IS NULL`, [id]);
+        _broadcast({ type: 'tournament_cancelled', tournamentId: id, reason: 'match_timeout' });
+      }
+    } catch (e) {
+      console.error("[tournament cron] ghost-match cancel check failed:", e.message);
+    }
   });
 
   console.log("[tournament] module initialised");
