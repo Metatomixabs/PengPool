@@ -10,7 +10,7 @@ CREATE TABLE tournaments (
     name              VARCHAR(100) NOT NULL,
     type              VARCHAR(10)  NOT NULL CHECK (type IN ('regular', 'custom')),
     creator_addr      VARCHAR(42)  NOT NULL,
-    buy_in_usd        INTEGER      NOT NULL CHECK (buy_in_usd IN (1, 2, 5)),
+    buy_in_usd        INTEGER      NOT NULL CHECK (buy_in_usd IN (0, 1, 2, 5)),
     start_time        TIMESTAMPTZ  NOT NULL,
     status            VARCHAR(12)  NOT NULL DEFAULT 'registration'
                                    CHECK (status IN ('registration', 'active', 'finished', 'cancelled')),
