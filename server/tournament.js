@@ -7,17 +7,16 @@ const cron        = require("node-cron");
 // Contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOURNAMENT_ADDRESS = process.env.TOURNAMENT_ADDRESS || "0x91b382aB2644D3B52b52fcCc4633550D0C90dd43";
+const TOURNAMENT_ADDRESS = process.env.TOURNAMENT_ADDRESS || "0x6493f9327Af16D7dfB28c6299e9c83d436a06Ee9";
 
 const TOURNAMENT_ABI = [
-  "function createTournament(string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator) external returns (uint256)",
+  "function createTournament(string name, uint256 buyInUSD, uint256 startTime, bool isCustom) external returns (uint256)",
   "function startTournament(uint256 tournamentId) external",
   "function declareMatchWinner(uint256 tournamentId, uint256 matchId, address winner) external",
   "function distributePrizes(uint256 tournamentId, address[] winners, uint256[] percentages) external",
   "function expiredPrizeClaim(uint256 tournamentId, address player) external",
   "function getTournamentInfo(uint256 tournamentId) external view returns (string name, uint256 buyInUSD, uint256 startTime, uint8 status, uint256 participantCount, uint256 prizePool, bool isCustom, address creator)",
   "function getPendingPrize(uint256 tournamentId, address player) external view returns (uint256)",
-  "function cancelTournament(uint256 tournamentId) external",
   "function playerDeposits(uint256 tournamentId, address player) external view returns (uint256)",
   "event TournamentCreated(uint256 indexed tournamentId, string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator)",
   "event TournamentCancelled(uint256 indexed tournamentId)",
@@ -344,7 +343,7 @@ async function _createTournamentRecord(name, buyInUSD, startTimeDate, isCustom, 
   let chainId = null;
   try {
     const tx      = await _getContract().createTournament(
-      name, BigInt(buyInUSD), BigInt(startTimeUnix), isCustom, creatorAddr
+      name, BigInt(buyInUSD), BigInt(startTimeUnix), isCustom
     );
     const receipt = await tx.wait();
     const iface   = new ethers.Interface(TOURNAMENT_ABI);
@@ -934,6 +933,22 @@ const httpRoutes = [
     },
   },
 
+  // GET /api/tournaments/cancelled
+  {
+    match: (method, url) => method === 'GET' && url === '/api/tournaments/cancelled',
+    handler: async (req, res) => {
+      const { rows } = await _pool.query(
+        `SELECT id, chain_id, name, type, buy_in_usd, start_time, status,
+                participant_count, prize_pool_eth, creator_addr
+         FROM tournaments
+         WHERE status = 'cancelled'
+         ORDER BY start_time DESC
+         LIMIT 20`
+      );
+      _json(res, 200, rows);
+    },
+  },
+
   // GET /api/tournament/:id — full info + matches grouped by round
   {
     match: (method, url) => method === "GET" && /^\/api\/tournament\/\d+$/.test(url),
@@ -1073,59 +1088,103 @@ const httpRoutes = [
     },
   },
 
-  // POST /api/tournament/cancel
+  // POST /api/tournament/sync-create — called by client after signing createTournament on-chain
+  {
+    match: (method, url) => method === 'POST' && url === '/api/tournament/sync-create',
+    handler: async (req, res) => {
+      try {
+        const body = JSON.parse(await _readBody(req));
+        const { chainTournamentId, name, buyInUSD, startTimeUnix, creatorAddr, sessionToken } = body;
+        if (!chainTournamentId || !creatorAddr) {
+          return _json(res, 400, { error: 'Missing fields' });
+        }
+
+        // Verify session token
+        const valid = await _verifySessionToken(sessionToken, creatorAddr);
+        if (!valid) return _json(res, 401, { error: 'Invalid or expired session token' });
+
+        // Verify on-chain: tournament exists and creator matches
+        let info;
+        try {
+          info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
+        } catch (e) {
+          return _json(res, 400, { error: 'Tournament not found on-chain: ' + e.message });
+        }
+        if (info.creator.toLowerCase() !== creatorAddr.toLowerCase()) {
+          return _json(res, 403, { error: 'On-chain creator does not match' });
+        }
+
+        // Check not already synced
+        const { rows: [existing] } = await _pool.query(
+          "SELECT id FROM tournaments WHERE chain_id = $1", [chainTournamentId]
+        );
+        if (existing) return _json(res, 200, existing); // idempotent
+
+        // Insert DB record
+        const startTime = new Date(Number(startTimeUnix) * 1000);
+        const { rows: [record] } = await _pool.query(
+          `INSERT INTO tournaments (chain_id, name, type, creator_addr, buy_in_usd, start_time)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [
+            chainTournamentId,
+            (name || info.name || '').trim().slice(0, 50),
+            'custom',
+            creatorAddr.toLowerCase(),
+            Number(buyInUSD ?? info.buyInUSD),
+            startTime.toISOString(),
+          ]
+        );
+
+        console.log('[tournament] sync-create: id=%d chain_id=%d creator=%s', record.id, chainTournamentId, creatorAddr);
+        _json(res, 200, record);
+      } catch(e) {
+        console.error('[tournament] sync-create error:', e.message);
+        _json(res, 500, { error: e.message });
+      }
+    },
+  },
+
+  // POST /api/tournament/cancel — called by client after signing cancelTournament on-chain
   {
     match: (method, url) => method === 'POST' && url === '/api/tournament/cancel',
     handler: async (req, res) => {
       try {
         const body = JSON.parse(await _readBody(req));
-        const { tournamentId, playerAddr, sessionToken } = body;
-        if (!tournamentId || !playerAddr || !sessionToken) {
+        const { chainTournamentId, creatorAddr, sessionToken } = body;
+        if (!chainTournamentId || !creatorAddr || !sessionToken) {
           return _json(res, 400, { error: 'Missing fields' });
         }
 
         // Verify session token belongs to requester
-        const valid = await _verifySessionToken(sessionToken, playerAddr);
+        const valid = await _verifySessionToken(sessionToken, creatorAddr);
         if (!valid) return _json(res, 401, { error: 'Invalid or expired session token' });
 
-        // Load tournament by DB id
-        const { rows: [t] } = await _pool.query(
-          "SELECT id, chain_id, status, creator_addr, start_time FROM tournaments WHERE id = $1",
-          [tournamentId]
-        );
-        if (!t) return _json(res, 404, { error: 'Tournament not found' });
-
-        // Only the creator can cancel
-        if (!t.creator_addr || t.creator_addr.toLowerCase() !== playerAddr.toLowerCase()) {
-          return _json(res, 403, { error: 'Only the tournament creator can cancel' });
-        }
-        if (t.status !== 'registration') {
-          return _json(res, 400, { error: 'Tournament is not in registration phase' });
-        }
-        const startMs = new Date(t.start_time).getTime();
-        if (Date.now() > startMs - 5 * 60 * 1000) {
-          return _json(res, 400, { error: 'Too close to start time to cancel (must be 5+ min before)' });
-        }
-
-        // Call contract
+        // Verify on-chain that tournament is now CANCELLED (status 3)
+        let info;
         try {
-          const tx = await _getContract().cancelTournament(BigInt(t.chain_id));
-          await tx.wait();
+          info = await _getContract().getTournamentInfo(BigInt(chainTournamentId));
         } catch (e) {
-          console.error('[tournament] cancelTournament contract error:', e.message);
-          return _json(res, 500, { error: 'Contract call failed: ' + e.message });
+          return _json(res, 400, { error: 'Could not read on-chain status: ' + e.message });
         }
+        // status: 0=REGISTRATION, 1=ACTIVE, 2=FINISHED, 3=CANCELLED
+        if (Number(info.status) !== 3) {
+          return _json(res, 400, { error: 'Tournament is not CANCELLED on-chain' });
+        }
+
+        // Find DB record by chain_id
+        const { rows: [t] } = await _pool.query(
+          "SELECT id, chain_id, status FROM tournaments WHERE chain_id = $1", [chainTournamentId]
+        );
+        if (!t) return _json(res, 404, { error: 'Tournament not found in DB' });
+        if (t.status === 'cancelled') return _json(res, 200, { ok: true }); // already synced
 
         // Update DB
         await _pool.query("UPDATE tournaments SET status = 'cancelled' WHERE id = $1", [t.id]);
 
         // Broadcast WS
-        if (_wss) {
-          const msg = JSON.stringify({ type: 'tournament_cancelled', tournamentId: t.id, chainId: t.chain_id });
-          _wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
-        }
+        _broadcast({ type: 'tournament_cancelled', tournamentId: t.id, chainId: t.chain_id });
 
-        console.log('[tournament] cancelled tournament id=%d chain_id=%d by %s', t.id, t.chain_id, playerAddr);
+        console.log('[tournament] cancel synced: id=%d chain_id=%d by %s', t.id, t.chain_id, creatorAddr);
         _json(res, 200, { ok: true });
       } catch(e) {
         console.error('[tournament] cancel error:', e.message);

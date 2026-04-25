@@ -21,7 +21,7 @@
 
   var PENGPOOL_ADDRESS  = "0x1E27Ff0Ca71e8284437d8a64705ecbd23C8e0922";
   // Populated at startup by ui.js via /api/config; fallback to last known address
-  var _tournamentAddr   = "0x91b382aB2644D3B52b52fcCc4633550D0C90dd43";
+  var _tournamentAddr   = "0x6493f9327Af16D7dfB28c6299e9c83d436a06Ee9";
 
   var TABLE_NFT_ADDRESS = "0x84f038171F43c065d28A47bb1E15f33a4C7BF455";
   var TABLE_NFT_ABI = [
@@ -412,6 +412,82 @@
           functionName: "getDeposit", args: [player],
         });
       }).catch(err => { _fail("getDeposit", err); });
+    },
+    // createTournament(name, buyInUSD, startTimeUnix, sessionToken) — client signs createTournament on-chain, then syncs DB
+    createTournament: function(name, buyInUSD, startTimeUnix, sessionToken) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ABI_LOCAL = [
+        { name: "createTournament", type: "function", stateMutability: "nonpayable",
+          inputs: [
+            { name: "name",      type: "string"  },
+            { name: "buyInUSD",  type: "uint256" },
+            { name: "startTime", type: "uint256" },
+            { name: "isCustom",  type: "bool"    },
+          ],
+          outputs: [{ name: "tournamentId", type: "uint256" }]
+        },
+      ];
+      var httpUrl = window.location.hostname === 'localhost'
+        ? 'http://localhost:8080'
+        : 'https://pengpool-production.up.railway.app';
+      var tAddr = _tournamentAddr;
+      var _name = name; var _buyInUSD = buyInUSD; var _startTimeUnix = startTimeUnix;
+      return _abs.writeContract({
+        address: tAddr, abi: TOURNAMENT_ABI_LOCAL,
+        functionName: "createTournament",
+        args: [_name, BigInt(_buyInUSD), BigInt(_startTimeUnix), true],
+      }).then(function(txHash) {
+        console.log("[PengPool] createTournament tx:", txHash);
+        return _ensurePub().then(function(pub) {
+          return pub.waitForTransactionReceipt({ hash: txHash });
+        });
+      }).then(function(receipt) {
+        // Parse TournamentCreated event: tournamentId is topics[1] (indexed)
+        var chainTournamentId = null;
+        for (var i = 0; i < receipt.logs.length; i++) {
+          var log = receipt.logs[i];
+          if (log.address && log.address.toLowerCase() === tAddr.toLowerCase() &&
+              log.topics && log.topics.length >= 2) {
+            try { chainTournamentId = Number(BigInt(log.topics[1])); } catch(_) {}
+            if (chainTournamentId !== null) break;
+          }
+        }
+        if (chainTournamentId === null) throw new Error("Could not parse TournamentCreated event");
+        console.log("[PengPool] createTournament chainId:", chainTournamentId);
+        fetch(httpUrl + '/api/tournament/sync-create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chainTournamentId: chainTournamentId,
+            name:              _name,
+            buyInUSD:          Number(_buyInUSD),
+            startTimeUnix:     Number(_startTimeUnix),
+            creatorAddr:       _agw,
+            sessionToken:      sessionToken || null,
+          }),
+        }).catch(function(e) { console.warn('[tournament] sync-create notify failed:', e.message); });
+        return chainTournamentId;
+      }).catch(function(err) { _fail("createTournament", err); });
+    },
+    // cancelTournament(chainTournamentId) — creator signs cancelTournament on-chain; server notification handled by ui.js
+    cancelTournament: function(chainTournamentId) {
+      try { _requireAbs(); } catch(e) { return Promise.reject(e); }
+      var TOURNAMENT_ABI_LOCAL = [
+        { name: "cancelTournament", type: "function", stateMutability: "nonpayable",
+          inputs: [{ name: "tournamentId", type: "uint256" }], outputs: [] },
+      ];
+      return _abs.writeContract({
+        address: _tournamentAddr, abi: TOURNAMENT_ABI_LOCAL,
+        functionName: "cancelTournament",
+        args: [BigInt(chainTournamentId)],
+      }).then(function(txHash) {
+        console.log("[PengPool] cancelTournament tx:", txHash);
+        return _ensurePub().then(function(pub) {
+          return pub.waitForTransactionReceipt({ hash: txHash });
+        });
+      }).then(function(receipt) {
+        return receipt;
+      }).catch(function(err) { _fail("cancelTournament", err); });
     },
     // registerTournament(chainTournamentId, buyInUSD) — pay buy-in to enter a tournament
     registerTournament: function(chainTournamentId, buyInUSD) {

@@ -144,20 +144,18 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
     // Tournament creation
     // -------------------------------------------------------------------------
 
-    /// @notice Creates a new tournament. Only callable by owner (server).
+    /// @notice Creates a new tournament. Called directly by the organizer wallet.
     /// @param name       Human-readable tournament name.
-    /// @param buyInUSD   Buy-in amount in USD: must be 1, 2, or 5.
+    /// @param buyInUSD   Buy-in amount in USD: must be 0, 1, 2, or 5.
     /// @param startTime  Unix timestamp when registration closes and tournament starts.
     /// @param isCustom   False = Regular (buy-in must be $2). True = Custom.
-    /// @param creator    Wallet of the organizer (for attribution; may be any address).
     /// @return tournamentId Auto-incremented tournament ID starting at 1.
     function createTournament(
         string calldata name,
         uint256 buyInUSD,
         uint256 startTime,
-        bool isCustom,
-        address creator
-    ) external onlyOwner returns (uint256 tournamentId) {
+        bool isCustom
+    ) external returns (uint256 tournamentId) {
         require(
             buyInUSD == 0 || buyInUSD == 1 || buyInUSD == 2 || buyInUSD == 5,
             "PengPoolTournament: buy-in must be 0, 1, 2, or 5 USD"
@@ -165,8 +163,7 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
         if (!isCustom) {
             require(buyInUSD == 2, "PengPoolTournament: regular tournament buy-in must be 2 USD");
         }
-        require(creator   != address(0),      "PengPoolTournament: invalid creator address");
-        require(startTime >  block.timestamp,  "PengPoolTournament: start time must be in the future");
+        require(startTime > block.timestamp, "PengPoolTournament: start time must be in the future");
 
         tournamentCount++;
         tournamentId = tournamentCount;
@@ -179,11 +176,11 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
             participantCount: 0,
             prizePoolETH:     0,
             isCustom:         isCustom,
-            creator:          creator,
+            creator:          msg.sender,
             distributedAt:    0
         });
 
-        emit TournamentCreated(tournamentId, name, buyInUSD, startTime, isCustom, creator);
+        emit TournamentCreated(tournamentId, name, buyInUSD, startTime, isCustom, msg.sender);
     }
 
     // -------------------------------------------------------------------------
@@ -270,10 +267,14 @@ contract PengPoolTournament is Ownable, ReentrancyGuard {
 
     /// @notice Cancel a tournament that has not yet started. Deposits remain locked
     ///         until each player calls withdrawCancelledDeposit().
-    ///         Only callable within the registration window (5+ minutes before start).
+    ///         Only callable by the tournament creator, 5+ minutes before start.
     /// @param tournamentId ID of the tournament to cancel.
-    function cancelTournament(uint256 tournamentId) external onlyOwner {
+    function cancelTournament(uint256 tournamentId) external {
         Tournament storage t = tournaments[tournamentId];
+        require(
+            msg.sender == t.creator,
+            "PengPoolTournament: only the creator can cancel"
+        );
         require(
             t.status == TournamentStatus.REGISTRATION,
             "PengPoolTournament: tournament is not in registration status"

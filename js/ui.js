@@ -857,7 +857,7 @@ function _wsOnMessage(msg) {
 
 function _tShowTab(tab) {
   _tCurrentTab = tab;
-  ['open','active','finished'].forEach(t => {
+  ['open','active','finished','cancelled'].forEach(t => {
     const el = document.getElementById('tTab' + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle('active', t === tab);
   });
@@ -869,14 +869,16 @@ async function _tLoadList() {
   if (!list) return;
   list.innerHTML = '<div class="level-loading">Loading…</div>';
   try {
-    const endpoint = _tCurrentTab === 'finished'
-      ? HTTP_URL + '/api/tournaments/finished'
-      : HTTP_URL + '/api/tournaments';
+    const endpointMap = {
+      finished:  HTTP_URL + '/api/tournaments/finished',
+      cancelled: HTTP_URL + '/api/tournaments/cancelled',
+    };
+    const endpoint = endpointMap[_tCurrentTab] || HTTP_URL + '/api/tournaments';
     const res  = await fetch(endpoint);
     const data = await res.json();
     if (!Array.isArray(data)) { console.warn('[tournament] unexpected response:', data); list.innerHTML = '<div class="level-noconn">Failed to load tournaments.</div>'; return; }
 
-    const statusFilter = { open: 'registration', active: 'active', finished: 'finished' };
+    const statusFilter = { open: 'registration', active: 'active', finished: 'finished', cancelled: 'cancelled' };
     const filtered = data.filter(t => t.status === statusFilter[_tCurrentTab]);
 
     if (filtered.length === 0) {
@@ -1033,19 +1035,27 @@ async function _tCancelTournament() {
   if (!token) { toast('Session expired — reconnect wallet', 1); return; }
   if (!confirm('Cancel this tournament? All deposits will be refundable by participants.')) return;
   const btn = document.getElementById('tBtnCancel');
-  if (btn) { btn.disabled = true; btn.textContent = 'Cancelling…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirm in wallet…'; }
   try {
+    // Step 1: sign on-chain cancel (contract verifies creator via msg.sender)
+    await w.cancelTournament(_tDetailData.chain_id);
+    if (btn) btn.textContent = 'Syncing…';
+    // Step 2: notify server to sync DB and broadcast WS
     const res = await fetch(HTTP_URL + '/api/tournament/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tournamentId: _tDetailId, playerAddr: w.getAddress(), sessionToken: token }),
+      body: JSON.stringify({
+        chainTournamentId: _tDetailData.chain_id,
+        creatorAddr:       w.getAddress(),
+        sessionToken:      token,
+      }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Cancel failed');
+    if (!res.ok) throw new Error(data.error || 'Server sync failed');
     toast('Tournament cancelled. Participants can claim refunds.');
     await _tRefreshDetail();
   } catch(e) {
-    toast('Cancel failed: ' + (e?.message || ''), 1);
+    toast('Cancel failed: ' + (e?.message || '').replace('[PengPool] ', ''), 1);
     if (btn) { btn.disabled = false; btn.textContent = 'CANCEL TOURNAMENT'; }
   }
 }
@@ -1139,22 +1149,15 @@ async function _tSubmitCreate() {
   const w = window.PengPoolWeb3;
   if (!w || !w.isConnected()) { toast('Connect wallet first', 1); return; }
   const btn = document.getElementById('tFormSubmit');
-  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirm in wallet…'; }
   try {
-    // Combines date + time strings; new Date(...) interprets as local browser time (not UTC)
     const startTimeUnix = Math.floor(new Date(`${dateVal}T${timeVal}`).getTime() / 1000);
-    const res = await fetch(HTTP_URL + '/api/tournament/create-custom', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creatorAddr: w.getAddress(), name, buyInUSD: buyIn, startTimeUnix }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    await w.createTournament(name, buyIn, startTimeUnix, _getSessionToken());
     toast('Tournament created!');
     document.getElementById('tForm').style.display = 'none';
     _tShowTab('open');
   } catch(e) {
-    toast('Create failed: ' + (e?.message || ''), 1);
+    toast('Create failed: ' + (e?.message || '').replace('[PengPool] ', ''), 1);
     if (btn) { btn.disabled = false; btn.textContent = 'CREATE'; }
   }
 }
