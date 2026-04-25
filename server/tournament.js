@@ -972,9 +972,12 @@ const httpRoutes = [
         const { tournamentId, playerAddr, ethAmount } = body;
         if (!tournamentId || !playerAddr) return _json(res, 400, { error: 'Missing fields' });
 
-        // Find tournament by chain_id
+        // Find the active tournament by chain_id — filter by status to avoid
+        // matching finished tournaments from previous contract deployments that
+        // share the same chain_id
         const { rows: [t] } = await _pool.query(
-          'SELECT id FROM tournaments WHERE chain_id = $1', [tournamentId]
+          "SELECT id FROM tournaments WHERE chain_id = $1 AND status IN ('registration', 'active')",
+          [tournamentId]
         );
         if (!t) return _json(res, 404, { error: 'Tournament not found' });
 
