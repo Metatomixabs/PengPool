@@ -18,6 +18,7 @@ const TOURNAMENT_ABI = [
   "function getTournamentInfo(uint256 tournamentId) external view returns (string name, uint256 buyInUSD, uint256 startTime, uint8 status, uint256 participantCount, uint256 prizePool, bool isCustom, address creator)",
   "function getPendingPrize(uint256 tournamentId, address player) external view returns (uint256)",
   "function playerDeposits(uint256 tournamentId, address player) external view returns (uint256)",
+  "function isRegistered(uint256 tournamentId, address player) external view returns (bool)",
   "event TournamentCreated(uint256 indexed tournamentId, string name, uint256 buyInUSD, uint256 startTime, bool isCustom, address creator)",
   "event TournamentCancelled(uint256 indexed tournamentId)",
 ];
@@ -315,6 +316,21 @@ function initTournament(wss, pool, wallet, provider, rooms) {
       }
     } catch (e) {
       console.error("[tournament cron] ghost-match cancel check failed:", e.message);
+    }
+
+    // 5. Alert on distribution_failed tournaments — requires manual operator review.
+    //    The cron intentionally does NOT auto-retry: the tx may have reverted for a
+    //    legitimate reason (wrong winners, contract paused, etc.) and retrying blindly
+    //    could double-distribute if the first tx actually landed late.
+    try {
+      const { rows: failed } = await _pool.query(
+        "SELECT id, chain_id FROM tournaments WHERE status = 'distribution_failed'"
+      );
+      for (const { id, chain_id } of failed) {
+        console.error(`[tournament cron] NEEDS MANUAL REVIEW: tournament id=${id} chain_id=${chain_id} is in distribution_failed state`);
+      }
+    } catch (e) {
+      console.error('[tournament cron] distribution-failed check failed:', e.message);
     }
   });
 
@@ -751,23 +767,56 @@ async function finalizeTournament(tournamentDbId) {
   console.log(`[tournament] distributePrizes: id=${tournamentDbId} winners=`, winnerAddrs);
 
   if (parseFloat(t.prize_pool_eth) > 0) {
+    // Crash-recovery pre-check: if the server died after sending the tx but before
+    // updating the DB, the on-chain status is already FINISHED — skip resending.
+    let confirmed = false;
     try {
-      const tx = await _getContract().distributePrizes(
-        BigInt(t.chain_id),
-        winnerAddrs,
-        percentages.map(p => BigInt(p))
-      );
-      await tx.wait();
-      console.log(`[tournament] distributePrizes confirmed: ${tx.hash}`);
+      const info = await _getContract().getTournamentInfo(BigInt(t.chain_id));
+      confirmed = Number(info.status) === 2; // TournamentStatus.FINISHED
+      if (confirmed) console.log(`[tournament] distributePrizes already on-chain for id=${tournamentDbId}, syncing DB`);
     } catch (e) {
-      console.error("[tournament] distributePrizes failed:", e.message);
-      // Continue — still update DB so the tournament doesn't stay 'active' forever
+      console.warn('[tournament] finalize: could not read on-chain status, will attempt tx:', e.message);
+    }
+
+    if (!confirmed) {
+      let txHash;
+      try {
+        const tx = await _getContract().distributePrizes(
+          BigInt(t.chain_id),
+          winnerAddrs,
+          percentages.map(p => BigInt(p))
+        );
+        txHash = tx.hash;
+        console.log(`[tournament] distributePrizes sent: ${txHash}`);
+      } catch (e) {
+        console.error('[tournament] distributePrizes tx failed:', e.message);
+        await _pool.query("UPDATE tournaments SET status = 'distribution_failed' WHERE id = $1", [tournamentDbId]);
+        return;
+      }
+
+      // Poll on-chain instead of waitForTransactionReceipt (incompatible with AGW)
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const info = await _getContract().getTournamentInfo(BigInt(t.chain_id));
+          if (Number(info.status) === 2) { confirmed = true; break; }
+        } catch (e) {
+          console.warn('[tournament] distributePrizes poll (attempt %d): %s', attempt, e.message);
+        }
+      }
+
+      if (!confirmed) {
+        console.error(`[tournament] distributePrizes not confirmed on-chain after retries: tx=${txHash}`);
+        await _pool.query("UPDATE tournaments SET status = 'distribution_failed' WHERE id = $1", [tournamentDbId]);
+        return;
+      }
+      console.log(`[tournament] distributePrizes confirmed on-chain: ${txHash}`);
     }
   } else {
     console.log(`[tournament] free tournament ${tournamentDbId} — skipping distributePrizes`);
   }
 
-  // Update DB
+  // Update DB — only reached on success or free tournament
   await _pool.query("UPDATE tournaments SET status = 'finished' WHERE id = $1", [tournamentDbId]);
 
   for (const s of standings) {
@@ -1049,7 +1098,7 @@ const httpRoutes = [
       try {
         const body = JSON.parse(await _readBody(req));
         console.log('[tournament] register-participant:', body);
-        const { tournamentId, playerAddr, ethAmount } = body;
+        const { tournamentId, playerAddr } = body;
         if (!tournamentId || !playerAddr) return _json(res, 400, { error: 'Missing fields' });
 
         // Find the active tournament by chain_id — filter by status to avoid
@@ -1061,6 +1110,27 @@ const httpRoutes = [
         );
         if (!t) return _json(res, 404, { error: 'Tournament not found' });
 
+        // Verify on-chain: player must be registered and deposit recorded.
+        // Retry up to 5×2s because client fires this request before the tx confirms.
+        const contract = _getContract();
+        let onChainRegistered = false;
+        let onChainDeposit = 0n;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            onChainRegistered = await contract.isRegistered(BigInt(tournamentId), playerAddr);
+            if (onChainRegistered) {
+              onChainDeposit = await contract.playerDeposits(BigInt(tournamentId), playerAddr);
+              break;
+            }
+          } catch (e) {
+            console.warn('[tournament] register-participant on-chain read (attempt %d): %s', attempt, e.message);
+          }
+          if (attempt < 4) await new Promise(r => setTimeout(r, 2000));
+        }
+        if (!onChainRegistered) {
+          return _json(res, 403, { error: 'Player not registered on-chain' });
+        }
+
         // Upsert participant
         await _pool.query(
           `INSERT INTO tournament_participants (tournament_id, player_addr)
@@ -1069,7 +1139,7 @@ const httpRoutes = [
           [t.id, playerAddr]
         );
 
-        // Update participant count and prize pool
+        // Update participant count and prize pool using the verified on-chain deposit
         await _pool.query(
           `UPDATE tournaments
            SET participant_count = (
@@ -1077,7 +1147,7 @@ const httpRoutes = [
            ),
            prize_pool_eth = prize_pool_eth + $2
            WHERE id = $1`,
-          [t.id, (Number(ethAmount) / 1e18).toFixed(18)]
+          [t.id, (Number(onChainDeposit) / 1e18).toFixed(18)]
         );
 
         _json(res, 200, { ok: true });
