@@ -51,12 +51,13 @@ function _clientIp(req) {
 
 const _TOO_MANY_JSON = JSON.stringify({ error: "Too many requests, please try again later" });
 
-const _limitGeneral  = _createRateLimiter(100, 15 * 60 * 1000); // 100 / 15 min
+const _limitGeneral  = _createRateLimiter(1000, 15 * 60 * 1000); // 1000 / 15 min
 const _limitRegister = _createRateLimiter(30,  60 * 60 * 1000); //  30 / 1 h
 const _limitAlias    = _createRateLimiter(10,  60 * 60 * 1000); //  10 / 1 h
 const _limitMatch    = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
-const _limitClaim      = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
-const _limitTableClaim = _createRateLimiter(5,   60 * 1000);      //   5 / 1 min
+const _limitClaim           = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min
+const _limitTableClaim      = _createRateLimiter(5,   60 * 1000);      //   5 / 1 min
+const _limitTournamentWrite = _createRateLimiter(30,  15 * 60 * 1000); //  30 / 15 min — tournament POSTs only
 
 // ── On-chain settlement ───────────────────────────────────────────────────────
 
@@ -933,7 +934,12 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
-    // Tournament routes
+    // Tournament routes — POST mutations get a tighter per-IP limit on top of _limitGeneral
+    if (req.method === 'POST' && req.url.startsWith('/api/tournament')) {
+      if (!_limitTournamentWrite(_ip)) {
+        _safeEnd(429, { "Content-Type": "application/json", ...CORS }, _TOO_MANY_JSON); return;
+      }
+    }
     for (const route of tournament.httpRoutes) {
       if (route.match(req.method, req.url)) {
         try {
